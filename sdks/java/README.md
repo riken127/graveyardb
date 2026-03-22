@@ -1,6 +1,6 @@
 # EventStore Java SDK
 
-Java client library for `graveyar_db` using gRPC. Supports Spring Boot, async operations, and optimistic concurrency control.
+Java client library for `graveyar_db` using gRPC. Supports Spring Boot, async operations, optimistic concurrency control, TLS, and bearer-token auth.
 
 ## Features
 
@@ -9,7 +9,7 @@ Java client library for `graveyar_db` using gRPC. Supports Spring Boot, async op
 - **Resilience**: Configurable Timeouts.
 - **Performance**: Async API (`ListenableFuture`) and Sync API.
 - **Integration**: Spring Boot `@Service` and `@Configuration`.
-- **Environment**: Easy toggle between Plaintext (Dev) and TLS (Prod).
+- **Environment**: Easy toggle between Plaintext (Dev), TLS (Prod), and bearer-token auth.
 
 ## Installation
 
@@ -31,7 +31,8 @@ Configure the client in your `application.properties` or `application.yml`:
 |----------|---------|-------------|
 | `eventstore.host` | `localhost` | Hostname of the EventStore server. |
 | `eventstore.port` | `50051` | gRPC port. |
-| `eventstore.use-tls` | `false` | Set `true` for Production to check certificates. |
+| `eventstore.use-tls` | `false` | Set `true` to use TLS with the JVM trust store. |
+| `eventstore.auth-token` | empty | Optional bearer token sent as `authorization: Bearer <token>`. |
 | `eventstore.timeout-ms` | `5000` | Timeout for requests in milliseconds. |
 
 The SDK also exposes the same defaults as a plain Java object via `EventStoreConfig`, so you can use it outside Spring if you prefer.
@@ -63,8 +64,10 @@ public class UserProfile {
 Supported Constraints:
 - `min` / `max`: For numeric values.
 - `minLength` / `maxLength`: For strings.
-- `regex`: Regular expression pattern.
+- `regex`: Regular expression pattern. The Java `SchemaValidator` can check this locally, but backend enforcement depends on server support.
 - `nullable`: Whether the field is optional (default: true).
+
+The schema generator exports declared instance fields. `@GraveyardField` controls nullability and constraint metadata; unannotated fields are included as nullable, unconstrained schema fields. `transient` and `static` fields are skipped.
 
 Register the schema:
 
@@ -79,6 +82,8 @@ List<Event> events = List.of(Event.newBuilder()...build());
 // Use EventStoreClient.ANY_VERSION for "append regardless of current stream version".
 boolean success = client.appendEvent("stream-1", events, EventStoreClient.ANY_VERSION);
 ```
+
+`EventStoreClient.ANY_VERSION` maps to the server's `expected_version = -1` sentinel. Any other negative value is rejected by the client before the request is sent.
 
 ### Append Async
 
@@ -127,9 +132,14 @@ Ensure your `application.properties` is tuned for production:
 ```properties
 # Enable TLS for security
 eventstore.use-tls=true
+# Add bearer-token auth if the server requires it
+eventstore.auth-token=${EVENTSTORE_AUTH_TOKEN}
 # Adjust timeout based on network latency (default 5000ms)
 eventstore.timeout-ms=2000
 ```
 
 ### Constraints & Data Integrity
-Use `@GraveyardField` constraints to enforce schema validation at the definition level. Non-nullable fields are exported as `required=true` in the generated schema, which keeps the Java-side annotations aligned with validation behavior.
+Use `@GraveyardField` constraints to describe schema metadata. The Java SDK includes a client-side `SchemaValidator` helper for preflight checks, but backend enforcement remains the source of truth. Non-nullable fields are exported as `required=true` in the generated schema so the schema model and annotations stay aligned. Regex validation is currently best treated as client-side validation unless your backend version explicitly enforces it.
+
+### TLS and Auth
+`eventstore.use-tls=true` enables gRPC transport security with the JVM's configured trust store. If you need a custom CA bundle or a more specialized auth flow, build and pass your own `ManagedChannel` to `EventStoreClient` instead of relying on the Spring-configured channel bean.

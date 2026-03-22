@@ -150,6 +150,20 @@ class EventStoreClientTest {
     }
 
     @Test
+    void upsertSchema_ExcludesTransientFields() {
+        transport.upsertSchemaResponse = UpsertSchemaResponse.newBuilder().setSuccess(true).build();
+
+        UpsertSchemaResponse result = eventStoreClient.upsertSchema(TransientEntity.class);
+
+        assertTrue(result.getSuccess());
+        assertNotNull(transport.lastUpsertSchemaRequest);
+
+        com.eventstore.client.model.Schema schema = transport.lastUpsertSchemaRequest.getSchema();
+        assertTrue(schema.getFieldsMap().containsKey("visible"));
+        assertFalse(schema.getFieldsMap().containsKey("secret"));
+    }
+
+    @Test
     void saveSnapshot_Success() {
         transport.saveSnapshotResponse = true;
 
@@ -265,5 +279,11 @@ class EventStoreClientTest {
 
         @GraveyardField(minLength = 3, regex = "^[a-z]+$")
         String username;
+    }
+
+    @GraveyardEntity("transient_entity")
+    static class TransientEntity {
+        String visible;
+        transient String secret;
     }
 }

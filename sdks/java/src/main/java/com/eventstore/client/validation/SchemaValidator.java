@@ -2,7 +2,7 @@ package com.eventstore.client.validation;
 
 import com.eventstore.client.model.Field;
 import com.eventstore.client.model.FieldConstraints;
-import com.eventstore.client.model.FieldType; // Import FieldType needed
+import com.eventstore.client.model.FieldType;
 import com.eventstore.client.model.Schema;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,6 +19,9 @@ public class SchemaValidator {
 
     /**
      * Validates a JSON payload against a Schema.
+     * <p>
+     * This is a client-side helper for preflight checks. It mirrors the Java SDK's
+     * schema model, but the backend still owns authoritative enforcement.
      *
      * @param payload JSON bytes.
      * @param schema  The Proto Schema.
@@ -41,22 +44,15 @@ public class SchemaValidator {
             JsonNode node = root.get(fieldName);
 
             // 1. Required / Nullable Check
-            // Note: Schema doesn't explicitly have "required". It has "nullable".
-            // If constraints.required is set, or if nullable is false?
-            // GraveyardField annotation has nullable() default true.
-            // FieldConstraints has required(). 
-            // We should check FieldConstraints.required first.
-            boolean required = false;
-            if (fieldDef.hasConstraints()) {
-                required = fieldDef.getConstraints().getRequired();
-            }
-            // Logic: if required is true, it MUST be present and not null.
-            // If required is false, check nullable? If nullable is false, it MUST be not null IF present?
-            // Let's stick to 'required' constraint as primary enforcement for presence.
-            
+            // Nullability is enforced even when the schema does not carry explicit
+            // constraints, because Field.nullable is part of the transport contract.
+            boolean required = fieldDef.hasConstraints() && fieldDef.getConstraints().getRequired();
+            boolean nullable = fieldDef.getNullable();
+
             if (node == null || node.isNull()) {
-                if (required) {
-                    errors.add(String.format("Field '%s' is required but missing or null", fieldName));
+                if (required || !nullable) {
+                    errors.add(String.format(
+                            "Field '%s' is required but missing or null", fieldName));
                 }
                 continue; // Skip further checks if null behavior satisfied
             }
@@ -73,7 +69,7 @@ public class SchemaValidator {
     }
 
     private static void validateType(String fieldName, JsonNode node, Field fieldDef, List<String> errors) {
-        com.eventstore.client.model.FieldType ft = fieldDef.getFieldType();
+        FieldType ft = fieldDef.getFieldType();
         switch (ft.getKindCase()) {
             case PRIMITIVE:
                 switch (ft.getPrimitive()) {
@@ -91,6 +87,11 @@ public class SchemaValidator {
                 }
                 break;
             case ENUM_DEF:
+                if (!node.isTextual()) {
+                    errors.add(String.format("Field '%s' must be a STRING enum value", fieldName));
+                    break;
+                }
+
                 String val = node.asText();
                 List<String> variants = ft.getEnumDef().getVariantsList();
                 if (!variants.contains(val)) {

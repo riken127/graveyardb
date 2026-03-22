@@ -5,7 +5,6 @@ import com.eventstore.client.annotations.GraveyardField;
 import com.eventstore.client.config.EventStoreConfig;
 import com.eventstore.client.model.UpsertSchemaResponse;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -21,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * - EVENTSTORE_HOST
  * - EVENTSTORE_PORT
  * - EVENTSTORE_USE_TLS
+ * - EVENTSTORE_AUTH_TOKEN
  * - EVENTSTORE_TIMEOUT_MS
  */
 public class IntegrationTest {
@@ -33,14 +33,7 @@ public class IntegrationTest {
         Assumptions.assumeTrue(isIntegrationEnabled(), "Set EVENTSTORE_INTEGRATION_TESTS=true to run integration tests");
 
         EventStoreConfig config = loadConfig();
-        ManagedChannelBuilder<?> builder = ManagedChannelBuilder.forAddress(config.getHost(), config.getPort());
-        if (config.isUseTls()) {
-            builder.useTransportSecurity();
-        } else {
-            builder.usePlaintext();
-        }
-
-        channel = builder.build();
+        channel = config.eventStoreChannel();
         client = new EventStoreClient(channel, config);
     }
 
@@ -72,6 +65,7 @@ public class IntegrationTest {
         config.setHost(System.getenv().getOrDefault("EVENTSTORE_HOST", "localhost"));
         config.setPort(parseInt(System.getenv().getOrDefault("EVENTSTORE_PORT", "50051"), 50051));
         config.setUseTls(Boolean.parseBoolean(System.getenv().getOrDefault("EVENTSTORE_USE_TLS", "false")));
+        config.setAuthToken(System.getenv().getOrDefault("EVENTSTORE_AUTH_TOKEN", ""));
         config.setTimeoutMs(parseLong(System.getenv().getOrDefault("EVENTSTORE_TIMEOUT_MS", "5000"), 5000L));
         return config;
     }

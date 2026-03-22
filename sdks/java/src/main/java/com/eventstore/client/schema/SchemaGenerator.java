@@ -14,6 +14,10 @@ public class SchemaGenerator {
 
     /**
      * Generates a Proto Schema from a Java class annotated with @GraveyardEntity.
+     * <p>
+     * Declared instance fields are exported into the schema. Fields annotated with
+     * {@link GraveyardField} contribute nullability and constraint metadata, while
+     * unannotated fields default to nullable/unconstrained.
      *
      * @param clazz The entity class.
      * @return The generated Schema.
@@ -28,7 +32,9 @@ public class SchemaGenerator {
         schemaBuilder.setName(entityAuth.value());
 
         for (java.lang.reflect.Field reflectField : clazz.getDeclaredFields()) {
-            if (reflectField.isSynthetic() || Modifier.isStatic(reflectField.getModifiers())) {
+            if (reflectField.isSynthetic()
+                    || Modifier.isStatic(reflectField.getModifiers())
+                    || Modifier.isTransient(reflectField.getModifiers())) {
                 continue;
             }
 
@@ -42,9 +48,6 @@ public class SchemaGenerator {
     }
 
     private static Field generateField(java.lang.reflect.Field reflectField) {
-        // Skip transient or static fields if necessary, but for now include all.
-        // Or maybe skip fields not annotated? No, default to including all, annotation is for config.
-
         Field.Builder fieldBuilder = Field.newBuilder();
         GraveyardField fieldAuth = reflectField.getAnnotation(GraveyardField.class);
 
@@ -138,7 +141,9 @@ public class SchemaGenerator {
                 Schema.Builder subSchemaBuilder = Schema.newBuilder().setName(subName);
 
                 for (java.lang.reflect.Field subReflectField : type.getDeclaredFields()) {
-                    if (subReflectField.isSynthetic() || Modifier.isStatic(subReflectField.getModifiers())) {
+                    if (subReflectField.isSynthetic()
+                            || Modifier.isStatic(subReflectField.getModifiers())
+                            || Modifier.isTransient(subReflectField.getModifiers())) {
                         continue;
                     }
 
