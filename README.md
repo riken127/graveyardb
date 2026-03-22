@@ -7,7 +7,8 @@ The core lifecycle is `event -> transition -> snapshot`. Every append must inclu
 ## Current Status
 
 * The core Rust service handles append/read operations, schema management, transition validation, snapshots, TLS, and token-based auth hooks.
-* Schema validation currently supports primitives, enums, arrays, nested sub-schemas, numeric bounds, string length bounds, and regex checks.
+* Schema contract validation now runs at registration time and rejects invalid constraint combinations before schemas are stored.
+* Payload validation supports primitives, enums, arrays, nested sub-schemas, numeric bounds, string/array length bounds, and regex checks.
 * Cluster ownership is deterministic and based on the configured node list.
 * Go, Java, and TypeScript SDKs exist under `sdks/`, but each should be validated against the release checklist before production use.
 * Historical benchmark notes live in [BENCHMARKS.md](./BENCHMARKS.md); they are local-development measurements, not SLAs.

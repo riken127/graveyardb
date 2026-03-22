@@ -131,11 +131,14 @@ fn validate_field_type(
                 return false;
             };
 
+            let mut all_valid = true;
             for (idx, item) in values.iter().enumerate() {
                 let item_path = format!("{path}[{idx}]");
-                validate_field_type(item, inner, &item_path, errors);
+                if !validate_field_type(item, inner, &item_path, errors) {
+                    all_valid = false;
+                }
             }
-            true
+            all_valid
         }
         FieldType::SubSchema(schema) => {
             if !value.is_object() {
@@ -170,15 +173,17 @@ fn validate_constraints(
     }
 
     if let Some(s) = value.as_str() {
+        let char_len = s.chars().count();
+
         if let Some(min) = constraints.min_length {
-            if (s.len() as i32) < min {
-                errors.push(ValidationError::MinLength(path.to_string(), s.len(), min));
+            if (char_len as i32) < min {
+                errors.push(ValidationError::MinLength(path.to_string(), char_len, min));
             }
         }
 
         if let Some(max) = constraints.max_length {
-            if (s.len() as i32) > max {
-                errors.push(ValidationError::MaxLength(path.to_string(), s.len(), max));
+            if (char_len as i32) > max {
+                errors.push(ValidationError::MaxLength(path.to_string(), char_len, max));
             }
         }
 
@@ -195,6 +200,20 @@ fn validate_constraints(
                         pattern.clone(),
                     ));
                 }
+            }
+        }
+    }
+
+    if let Some(arr) = value.as_array() {
+        if let Some(min) = constraints.min_length {
+            if (arr.len() as i32) < min {
+                errors.push(ValidationError::MinLength(path.to_string(), arr.len(), min));
+            }
+        }
+
+        if let Some(max) = constraints.max_length {
+            if (arr.len() as i32) > max {
+                errors.push(ValidationError::MaxLength(path.to_string(), arr.len(), max));
             }
         }
     }

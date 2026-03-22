@@ -194,3 +194,66 @@ fn rejects_null_for_non_nullable_fields() {
         ValidationError::NullNotAllowed(field) if field == "name"
     ));
 }
+
+#[test]
+fn validates_array_length_constraints() {
+    let mut fields = HashMap::new();
+    fields.insert(
+        "tags".to_string(),
+        Field {
+            field_type: FieldType::Array(Box::new(FieldType::Primitive(PrimitiveType::String))),
+            nullable: false,
+            overrides_on_null: false,
+            constraints: Some(FieldConstraints {
+                min_length: Some(2),
+                max_length: Some(3),
+                ..Default::default()
+            }),
+        },
+    );
+
+    let schema = Schema {
+        name: "TagList".to_string(),
+        fields,
+    };
+
+    let json = serde_json::json!({ "tags": ["only-one"] });
+    let payload = serde_json::to_vec(&json).unwrap();
+    let errors = validate_event_payload(&payload, &schema).unwrap_err();
+    assert!(errors.iter().any(|e| matches!(
+        e,
+        ValidationError::MinLength(path, got, min)
+        if path == "tags" && *got == 1 && *min == 2
+    )));
+}
+
+#[test]
+fn counts_string_length_in_unicode_scalar_values() {
+    let mut fields = HashMap::new();
+    fields.insert(
+        "name".to_string(),
+        Field {
+            field_type: FieldType::Primitive(PrimitiveType::String),
+            nullable: false,
+            overrides_on_null: false,
+            constraints: Some(FieldConstraints {
+                min_length: Some(2),
+                ..Default::default()
+            }),
+        },
+    );
+
+    let schema = Schema {
+        name: "UnicodeName".to_string(),
+        fields,
+    };
+
+    let json = serde_json::json!({ "name": "é" });
+    let payload = serde_json::to_vec(&json).unwrap();
+    let errors = validate_event_payload(&payload, &schema).unwrap_err();
+    assert!(errors.iter().any(|e| matches!(
+        e,
+        ValidationError::MinLength(path, got, min)
+        if path == "name" && *got == 1 && *min == 2
+    )));
+}

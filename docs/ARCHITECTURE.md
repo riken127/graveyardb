@@ -50,6 +50,13 @@ graph TD
 5. Storage persists the event and advances the stream version.
 6. API returns success or a gRPC error to the SDK.
 
+### Upsert Schema
+
+1. SDK sends `UpsertSchemaRequest`.
+2. Pipeline validates the schema contract (type-safe constraints, coherent bounds, regex compilation, enum integrity).
+3. Invalid contracts are rejected as `INVALID_ARGUMENT`.
+4. Valid contracts are persisted through the configured storage backend.
+
 Example append payload:
 
 ```json

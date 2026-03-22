@@ -9,7 +9,7 @@ use crate::api::{
     UpsertSchemaResponse,
 };
 use crate::domain::events::event::Event as DomainEvent;
-use crate::pipeline::{EventPipeline, PipelineError};
+use crate::pipeline::{EventPipeline, PipelineError, SchemaUpsertError};
 
 pub mod auth;
 
@@ -115,7 +115,7 @@ impl EventStore for GrpcService {
         self.pipeline
             .upsert_schema(schema)
             .await
-            .map_err(Status::internal)?;
+            .map_err(status_from_schema_upsert_error)?;
 
         Ok(Response::new(UpsertSchemaResponse {
             success: true,
@@ -264,10 +264,19 @@ fn status_from_pipeline_error(error: PipelineError) -> Status {
     }
 }
 
+fn status_from_schema_upsert_error(error: SchemaUpsertError) -> Status {
+    match error {
+        SchemaUpsertError::InvalidContract { details } => Status::invalid_argument(details),
+        SchemaUpsertError::Storage(msg) => Status::internal(msg),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{status_from_pipeline_error, validate_expected_version};
-    use crate::pipeline::PipelineError;
+    use super::{
+        status_from_pipeline_error, status_from_schema_upsert_error, validate_expected_version,
+    };
+    use crate::pipeline::{PipelineError, SchemaUpsertError};
     use tonic::Code;
 
     #[test]
@@ -295,6 +304,14 @@ mod tests {
             details: "transition name must not be empty".to_string(),
         });
 
+        assert_eq!(status.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn maps_schema_contract_errors_to_invalid_argument() {
+        let status = status_from_schema_upsert_error(SchemaUpsertError::InvalidContract {
+            details: "field age applies numeric constraints to a non-number type".to_string(),
+        });
         assert_eq!(status.code(), Code::InvalidArgument);
     }
 }

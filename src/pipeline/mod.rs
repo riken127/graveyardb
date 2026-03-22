@@ -4,6 +4,7 @@ pub mod worker;
 use crate::cluster::client::ClusterClient;
 use crate::cluster::ClusterTopology;
 use crate::domain::events::event::Event;
+use crate::domain::schema::contract::ContractError;
 use crate::domain::schema::validation::ValidationError;
 use crate::pipeline::command::PipelineCommand;
 use crate::pipeline::worker::Worker;
@@ -70,6 +71,14 @@ impl From<EventStoreError> for PipelineError {
             EventStoreError::Unknown(msg) => PipelineError::Storage(msg),
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum SchemaUpsertError {
+    #[error("invalid schema contract: {details}")]
+    InvalidContract { details: String },
+    #[error("storage error: {0}")]
+    Storage(String),
 }
 
 pub struct EventPipeline {
@@ -265,11 +274,17 @@ impl EventPipeline {
     pub async fn upsert_schema(
         &self,
         schema: crate::domain::schema::model::Schema,
-    ) -> Result<(), String> {
+    ) -> Result<(), SchemaUpsertError> {
+        if let Err(errors) = crate::domain::schema::contract::validate_schema_contract(&schema) {
+            return Err(SchemaUpsertError::InvalidContract {
+                details: format_contract_errors(&errors),
+            });
+        }
+
         self.storage
             .upsert_schema(schema)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| SchemaUpsertError::Storage(e.to_string()))
     }
 
     /// Retrieves a schema by name.
@@ -285,6 +300,14 @@ impl EventPipeline {
 }
 
 fn format_validation_errors(errors: &[ValidationError]) -> String {
+    errors
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn format_contract_errors(errors: &[ContractError]) -> String {
     errors
         .iter()
         .map(std::string::ToString::to_string)
