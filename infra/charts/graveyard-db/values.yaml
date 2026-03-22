@@ -1,10 +1,10 @@
 replicaCount: 3
 
 image:
-  repository: riken127/graveyard-db
+  repository: ghcr.io/riken127/graveyardb
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "latest"
+  tag: ""
 
 nameOverride: ""
 fullnameOverride: ""
@@ -25,10 +25,57 @@ resources:
 persistence:
   enabled: true
   size: 1Gi
-  storageClass: "standard"
+  storageClass: ""
 
-env:
+podSecurityContext:
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsGroup: 10001
+  runAsNonRoot: true
+  runAsUser: 10001
+
+probes:
+  startup:
+    failureThreshold: 30
+    periodSeconds: 5
+    timeoutSeconds: 1
+  readiness:
+    failureThreshold: 3
+    periodSeconds: 10
+    timeoutSeconds: 1
+  liveness:
+    failureThreshold: 3
+    periodSeconds: 15
+    timeoutSeconds: 1
+
+affinity:
+  podAntiAffinity: true
+
+topologySpreadConstraints:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+auth:
+  existingSecret: ""
+  secretKey: AUTH_TOKEN
+  token: ""
+
+server:
   scyllaUri: "scylla-client.scylla.svc.cluster.local:9042"
   scyllaKeyspace: "graveyard"
-  authToken: "change-me-in-production"
   requestTimeoutMs: 5000
+  requireTls: false
+  requireAuth: true
+  otelEnabled: false
+  otelFailFast: false
+  tlsCertPath: /etc/graveyard/tls/tls.crt
+  tlsKeyPath: /etc/graveyard/tls/tls.key

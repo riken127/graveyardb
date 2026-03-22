@@ -10,10 +10,11 @@ services:
         condition: service_healthy
     environment:
      - SCYLLA_URI=scylla-node1:9042
-     - SCYLLA_KEYSPACE=eventstore
+     - SCYLLA_KEYSPACE=graveyard
      - RUST_LOG=info
      - CLUSTER_NODES=graveyard-node-1:50051,graveyard-node-2:50051
      - NODE_ID=0
+     - DB_PATH=/data/rocksdb
     ports:
       - "50051:50051"
     networks:
@@ -34,10 +35,11 @@ services:
         condition: service_healthy
     environment:
      - SCYLLA_URI=scylla-node1:9042
-     - SCYLLA_KEYSPACE=eventstore
+     - SCYLLA_KEYSPACE=graveyard
      - RUST_LOG=info
      - CLUSTER_NODES=graveyard-node-1:50051,graveyard-node-2:50051
      - NODE_ID=1
+     - DB_PATH=/data/rocksdb
     ports:
       - "50052:50051"
     networks:

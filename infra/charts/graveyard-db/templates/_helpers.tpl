@@ -49,3 +49,48 @@ Selector labels
 app.kubernetes.io/name: {{ include "graveyard-db.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Headless service name
+*/}}
+{{- define "graveyard-db.headlessServiceName" -}}
+{{- printf "%s-headless" (include "graveyard-db.fullname" .) -}}
+{{- end }}
+
+{{/*
+Configmap value for cluster nodes
+*/}}
+{{- define "graveyard-db.clusterNodes" -}}
+{{- $nodes := list -}}
+{{- $fullname := include "graveyard-db.fullname" . -}}
+{{- $namespace := .Release.Namespace -}}
+{{- $serviceName := include "graveyard-db.headlessServiceName" . -}}
+{{- $port := int .Values.service.headlessPort -}}
+{{- range $i := until (int .Values.replicaCount) -}}
+{{- $nodes = append $nodes (printf "%s-%d.%s.%s.svc.cluster.local:%d" $fullname $i $serviceName $namespace $port) -}}
+{{- end -}}
+{{- join "," $nodes -}}
+{{- end }}
+
+{{/*
+Auth secret name
+*/}}
+{{- define "graveyard-db.authSecretName" -}}
+{{- default (printf "%s-auth" (include "graveyard-db.fullname" .)) .Values.auth.existingSecret -}}
+{{- end }}
+
+{{/*
+Auth token value, preserving an existing cluster secret if one exists.
+*/}}
+{{- define "graveyard-db.authToken" -}}
+{{- if .Values.auth.token -}}
+{{- .Values.auth.token -}}
+{{- else -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace (include "graveyard-db.authSecretName" .) -}}
+{{- if and $secret $secret.data (hasKey $secret.data .Values.auth.secretKey) -}}
+{{- index $secret.data .Values.auth.secretKey | b64dec -}}
+{{- else -}}
+{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{- end }}

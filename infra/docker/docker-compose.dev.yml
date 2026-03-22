@@ -24,16 +24,16 @@ services:
       - scylla
     environment:
       - SCYLLA_URI=scylla:9042
-      - SCYLLA_KEYSPACE=eventstore
+      - SCYLLA_KEYSPACE=graveyard
       - RUST_LOG=debug
+      - DB_PATH=/data/rocksdb
     ports:
       - "50051:50051"
     networks:
       - graveyar_net
     volumes:
-      # Mount source for potential rebuilds/hot-reload (if using cargo-watch in future)
-      - ../../src:/app/src
-      - ../../Cargo.toml:/app/Cargo.toml
+      - ../../src:/usr/src/app/src
+      - ../../Cargo.toml:/usr/src/app/Cargo.toml
 
 volumes:
   scylla-data:

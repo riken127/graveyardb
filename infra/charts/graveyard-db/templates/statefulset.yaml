@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "graveyard-db.labels" . | nindent 4 }}
 spec:
-  serviceName: {{ include "graveyard-db.fullname" . }}-headless
+  serviceName: {{ include "graveyard-db.headlessServiceName" . }}
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
@@ -15,55 +15,121 @@ spec:
       labels:
         {{- include "graveyard-db.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity.podAntiAffinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "graveyard-db.selectorLabels" . | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+      {{- if .Values.topologySpreadConstraints.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpreadConstraints.maxSkew }}
+          topologyKey: {{ .Values.topologySpreadConstraints.topologyKey | quote }}
+          whenUnsatisfiable: {{ .Values.topologySpreadConstraints.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "graveyard-db.selectorLabels" . | nindent 14 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.securityContext }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- end }}
           ports:
             - name: grpc
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
           env:
             - name: PORT
               value: {{ .Values.service.port | quote }}
             - name: SCYLLA_URI
-              value: {{ .Values.env.scyllaUri | quote }}
+              value: {{ .Values.server.scyllaUri | quote }}
             - name: SCYLLA_KEYSPACE
-              value: {{ .Values.env.scyllaKeyspace | quote }}
-            - name: AUTH_TOKEN
-              value: {{ .Values.env.authToken | quote }}
+              value: {{ .Values.server.scyllaKeyspace | quote }}
             - name: REQUEST_TIMEOUT_MS
-              value: {{ .Values.env.requestTimeoutMs | quote }}
+              value: {{ .Values.server.requestTimeoutMs | quote }}
             - name: DB_PATH
               value: "/data/rocksdb"
+            - name: REQUIRE_TLS
+              value: {{ .Values.server.requireTls | quote }}
+            - name: REQUIRE_AUTH
+              value: {{ .Values.server.requireAuth | quote }}
+            - name: OTEL_ENABLED
+              value: {{ .Values.server.otelEnabled | quote }}
+            - name: OTEL_FAIL_FAST
+              value: {{ .Values.server.otelFailFast | quote }}
+            - name: TLS_CERT_PATH
+              value: {{ .Values.server.tlsCertPath | quote }}
+            - name: TLS_KEY_PATH
+              value: {{ .Values.server.tlsKeyPath | quote }}
             - name: CLUSTER_NODES
               valueFrom:
                 configMapKeyRef:
                   name: {{ include "graveyard-db.fullname" . }}-config
                   key: CLUSTER_NODES
-            - name: NODE_ID
-              # Extract node ID from hostname (graveyard-db-0 -> 0)
+            - name: AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "graveyard-db.authSecretName" . }}
+                  key: {{ .Values.auth.secretKey }}
+            - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
           command: ["/bin/sh", "-c"]
-          # Parse the ordinal from the hostname (last field after last hyphen)
           args:
             - >-
-              export NODE_ID=${HOSTNAME##*-};
-              ./graveyar_db
+              export NODE_ID=${POD_NAME##*-};
+              exec ./graveyar_db
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
   {{- if .Values.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: data
       spec:
         accessModes: [ "ReadWriteOnce" ]
-        storageClassName: {{ .Values.persistence.storageClass }}
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.persistence.size }}

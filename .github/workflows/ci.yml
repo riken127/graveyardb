@@ -44,3 +44,66 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run Clippy
         run: cargo clippy --locked -- -D warnings
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+      - name: Helm lint
+        run: helm lint infra/charts/graveyard-db
+      - name: Helm template
+        run: helm template graveyard-db infra/charts/graveyard-db --namespace default
+
+  sdk-go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/go
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sdks/go/go.mod
+          cache: true
+          cache-dependency-path: sdks/go/go.sum
+      - name: Run Go tests
+        run: go test ./...
+
+  sdk-typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Run TypeScript tests
+        run: npm test -- --runInBand
+      - name: Build TypeScript SDK
+        run: npm run build
+
+  sdk-java:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/java
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Run Maven tests
+        run: mvn test

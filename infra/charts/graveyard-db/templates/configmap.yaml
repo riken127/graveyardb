@@ -5,15 +5,4 @@ metadata:
   labels:
     {{- include "graveyard-db.labels" . | nindent 4 }}
 data:
-  # Construct the comma-separated list of nodes based on replica count and headless service
-  # Format: <pod-name-0>.<service-name>.<namespace>.svc.cluster.local:<port>, ...
-  CLUSTER_NODES: |
-    {{- $nodes := list -}}
-    {{- $fullname := include "graveyard-db.fullname" . -}}
-    {{- $namespace := .Release.Namespace -}}
-    {{- $port := .Values.service.headlessPort -}}
-    {{- range $i := until (int .Values.replicaCount) -}}
-      {{- $node := printf "%s-%d.%s-headless.%s.svc.cluster.local:%d" $fullname $i $fullname $namespace (int $port) -}}
-      {{- $nodes = append $nodes $node -}}
-    {{- end -}}
-    {{- join "," $nodes -}}
+  CLUSTER_NODES: {{ include "graveyard-db.clusterNodes" . | quote }}

@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "graveyard-db.fullname" . }}
+  labels:
+    {{- include "graveyard-db.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "graveyard-db.selectorLabels" . | nindent 6 }}
