@@ -49,6 +49,23 @@ docker-compose up -d
 
 Then point the server at the local ScyllaDB endpoint and the node list you want to use.
 
+## Container Images
+
+Tagged releases publish container images to GitHub Container Registry:
+
+* `ghcr.io/<owner>/<repo>:vX.Y.Z`
+* `ghcr.io/<owner>/<repo>:X.Y`
+* `ghcr.io/<owner>/<repo>:latest`
+
+You can pull an image and run it with your runtime configuration:
+
+```bash
+docker pull ghcr.io/<owner>/<repo>:vX.Y.Z
+docker run --rm -p 50051:50051 \
+  -e SCYLLA_KEYSPACE=graveyard \
+  ghcr.io/<owner>/<repo>:vX.Y.Z
+```
+
 ## Release and Contribution
 
 * Release process: [RELEASE.md](./RELEASE.md)

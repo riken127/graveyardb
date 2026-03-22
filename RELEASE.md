@@ -22,10 +22,12 @@ GraveyardDB uses semantic versioning and conventional commits.
 4. Cut a release commit using conventional commit style, for example `chore(release): v0.1.1`.
 5. Tag the commit as `v0.1.1`.
 6. Push the commit and tag.
-7. Let the release workflow verify the tagged build.
+7. Let the release workflow verify the tagged build and publish the container image.
+8. Confirm image availability in GHCR under `ghcr.io/<owner>/<repo>`.
 
 ## Practical Notes
 
 * Do not include generated build outputs in the release commit.
 * If the release changes SDK behavior, update the corresponding SDK README before tagging.
 * If the release changes startup or environment variables, update the root README at the same time.
+* Tagged releases publish image tags for `vX.Y.Z`, `X.Y`, and `latest`.

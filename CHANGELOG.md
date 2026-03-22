@@ -4,6 +4,14 @@ All notable changes to GraveyardDB will be documented here.
 
 ## Unreleased
 
+### Added
+
+* Release workflow now publishes versioned container images to GHCR for every `v*` tag.
+
+### Changed
+
+* Runtime Docker image defaults now use `SCYLLA_KEYSPACE` to match server configuration.
+
 ## 0.2.0 - 2026-03-22
 
 ### Added
