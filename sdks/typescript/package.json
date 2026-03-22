@@ -4,6 +4,32 @@
   "description": "TypeScript SDK for GraveyardDB",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./decorators": {
+      "types": "./dist/decorators/index.d.ts",
+      "default": "./dist/decorators/index.js"
+    },
+    "./proto": {
+      "types": "./dist/proto/index.d.ts",
+      "default": "./dist/proto/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "default": "./dist/schema/index.js"
+    }
+  },
   "files": [
     "dist"
   ],

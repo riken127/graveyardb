@@ -4,6 +4,24 @@ import { EventStoreConfig, defaultConfig } from './config';
 import { Event, AppendEventRequest, GetEventsRequest, UpsertSchemaRequest, UpsertSchemaResponse, AppendEventResponse } from './proto/eventstore';
 import { SchemaGenerator } from './schema/generator';
 
+export const ANY_VERSION = -1 as const;
+
+export function normalizeExpectedVersion(expectedVersion: number): number {
+    if (!Number.isInteger(expectedVersion)) {
+        throw new Error(`expectedVersion must be an integer, got ${expectedVersion}`);
+    }
+
+    if (expectedVersion < ANY_VERSION) {
+        throw new Error(`expectedVersion must be ${ANY_VERSION} or a non-negative integer`);
+    }
+
+    if (!Number.isSafeInteger(expectedVersion)) {
+        throw new Error(`expectedVersion must be a safe integer, got ${expectedVersion}`);
+    }
+
+    return expectedVersion;
+}
+
 export class EventStoreClient {
     private client: GrpcClient;
     private config: EventStoreConfig;
@@ -23,15 +41,26 @@ export class EventStoreClient {
         return new Date(Date.now() + this.config.timeoutMs);
     }
 
-    async appendEvent(streamId: string, events: Event[], expectedVersion: number = -1): Promise<boolean> {
+    private buildMetadata(): grpc.Metadata {
+        const metadata = new grpc.Metadata();
+
+        if (this.config.authToken) {
+            metadata.set('authorization', `Bearer ${this.config.authToken}`);
+        }
+
+        return metadata;
+    }
+
+    async appendEvent(streamId: string, events: Event[], expectedVersion: number = ANY_VERSION): Promise<boolean> {
         const req: AppendEventRequest = {
             streamId,
             events,
-            expectedVersion
+            expectedVersion: normalizeExpectedVersion(expectedVersion),
+            isForwarded: false
         };
 
         return new Promise((resolve, reject) => {
-            const metadata = new grpc.Metadata();
+            const metadata = this.buildMetadata();
             this.client.appendEvent(req, metadata, { deadline: this.getDeadline() }, (err, response) => {
                 if (err) return reject(err);
                 if (!response) return reject(new Error('No response received'));
@@ -45,7 +74,7 @@ export class EventStoreClient {
         const events: Event[] = [];
 
         return new Promise((resolve, reject) => {
-            const stream = this.client.getEvents(req, { deadline: this.getDeadline() });
+            const stream = this.client.getEvents(req, this.buildMetadata(), { deadline: this.getDeadline() });
 
             stream.on('data', (event: Event) => {
                 events.push(event);
@@ -66,7 +95,7 @@ export class EventStoreClient {
         const req: UpsertSchemaRequest = { schema };
 
         return new Promise((resolve, reject) => {
-            const metadata = new grpc.Metadata();
+            const metadata = this.buildMetadata();
             this.client.upsertSchema(req, metadata, { deadline: this.getDeadline() }, (err, response) => {
                 if (err) return reject(err);
                 if (!response) return reject(new Error('No response received'));

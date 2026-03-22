@@ -24,22 +24,51 @@ import _m0 from "protobufjs/minimal";
 
 export const protobufPackage = "eventstore";
 
+/** Represents a single immutable event in the system. */
 export interface Event {
+  /** Unique identifier for the event (UUID). */
   id: string;
+  /**
+   * Type of the event (e.g., "UserCreated", "OrderPlaced").
+   * Used for schema validation and routing.
+   */
   eventType: string;
+  /**
+   * The actual event data, typically JSON serialized (or other formats).
+   * Validated against Registered Schema if applicable.
+   */
   payload: Buffer;
+  /** Timestamp of when the event was created/appended (server side or client side). */
   timestamp: number;
+  /**
+   * Key-Value metadata for context (e.g., TraceID, CausationID, SagaStep).
+   * This allows tracking transitions and provenance without modifying the payload.
+   */
+  metadata: { [key: string]: string };
 }
 
+export interface Event_MetadataEntry {
+  key: string;
+  value: string;
+}
+
+/** Request to append a batch of events to a specific stream. */
 export interface AppendEventRequest {
+  /** The ID of the stream to append to (e.g., "user-123"). */
   streamId: string;
+  /** List of events to append. */
   events: Event[];
   /**
-   * Expected version for optimistic concurrency control.
-   * -1 (or omit/0 depending on logic) can represent "any version" or "no check".
-   * For specific requirement, explicit version is needed.
+   * Expected version for Optimistic Concurrency Control (OCC).
+   * - Use -1 to disable the version check.
+   * - Use a non-negative version to require an exact match.
    */
   expectedVersion: number;
+  /**
+   * Internal use: signals that this request was forwarded from another node.
+   * Clients should generally set this to false.
+   */
+  isForwarded: boolean;
 }
 
 export interface AppendEventResponse {
@@ -50,6 +79,7 @@ export interface GetEventsRequest {
   streamId: string;
 }
 
+/** Defines the structure and constraints for an Event Type. */
 export interface Schema {
   name: string;
   fields: { [key: string]: Field };
@@ -60,26 +90,30 @@ export interface Schema_FieldsEntry {
   value?: Field | undefined;
 }
 
+/** Defines a field within a Schema. */
 export interface Field {
   fieldType?: FieldType | undefined;
   nullable: boolean;
+  /** If true, a null value in a partial update overrides the existing value. */
   overridesOnNull: boolean;
   constraints?: FieldConstraints | undefined;
 }
 
+/** Validation constraints for fields. */
 export interface FieldConstraints {
   required: boolean;
-  /** For numbers */
+  /** Numeric constraints */
   minValue?: number | undefined;
   maxValue?:
     | number
     | undefined;
-  /** For strings */
+  /** String constraints */
   minLength?: number | undefined;
   maxLength?: number | undefined;
   regex?: string | undefined;
 }
 
+/** Wrapper for field types, supporting primitives, enums, arrays, and nested schemas. */
 export interface FieldType {
   primitive?: FieldType_Primitive | undefined;
   enumDef?: FieldType_Enum | undefined;
@@ -130,7 +164,6 @@ export interface FieldType_Enum {
   variants: string[];
 }
 
-/** Recursive message definition */
 export interface FieldType_Array {
   elementType?: FieldType | undefined;
 }
@@ -153,8 +186,33 @@ export interface GetSchemaResponse {
   found: boolean;
 }
 
+/** Represents a state snapshot of a stream. */
+export interface Snapshot {
+  streamId: string;
+  version: number;
+  payload: Buffer;
+  timestamp: number;
+}
+
+export interface SaveSnapshotRequest {
+  snapshot?: Snapshot | undefined;
+}
+
+export interface SaveSnapshotResponse {
+  success: boolean;
+}
+
+export interface GetSnapshotRequest {
+  streamId: string;
+}
+
+export interface GetSnapshotResponse {
+  snapshot?: Snapshot | undefined;
+  found: boolean;
+}
+
 function createBaseEvent(): Event {
-  return { id: "", eventType: "", payload: Buffer.alloc(0), timestamp: 0 };
+  return { id: "", eventType: "", payload: Buffer.alloc(0), timestamp: 0, metadata: {} };
 }
 
 export const Event = {
@@ -171,6 +229,9 @@ export const Event = {
     if (message.timestamp !== 0) {
       writer.uint32(32).uint64(message.timestamp);
     }
+    Object.entries(message.metadata).forEach(([key, value]) => {
+      Event_MetadataEntry.encode({ key: key as any, value }, writer.uint32(42).fork()).ldelim();
+    });
     return writer;
   },
 
@@ -209,6 +270,16 @@ export const Event = {
 
           message.timestamp = longToNumber(reader.uint64() as Long);
           continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          const entry5 = Event_MetadataEntry.decode(reader, reader.uint32());
+          if (entry5.value !== undefined) {
+            message.metadata[entry5.key] = entry5.value;
+          }
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -224,6 +295,12 @@ export const Event = {
       eventType: isSet(object.eventType) ? globalThis.String(object.eventType) : "",
       payload: isSet(object.payload) ? Buffer.from(bytesFromBase64(object.payload)) : Buffer.alloc(0),
       timestamp: isSet(object.timestamp) ? globalThis.Number(object.timestamp) : 0,
+      metadata: isObject(object.metadata)
+        ? Object.entries(object.metadata).reduce<{ [key: string]: string }>((acc, [key, value]) => {
+          acc[key] = String(value);
+          return acc;
+        }, {})
+        : {},
     };
   },
 
@@ -241,6 +318,15 @@ export const Event = {
     if (message.timestamp !== 0) {
       obj.timestamp = Math.round(message.timestamp);
     }
+    if (message.metadata) {
+      const entries = Object.entries(message.metadata);
+      if (entries.length > 0) {
+        obj.metadata = {};
+        entries.forEach(([k, v]) => {
+          obj.metadata[k] = v;
+        });
+      }
+    }
     return obj;
   },
 
@@ -253,12 +339,92 @@ export const Event = {
     message.eventType = object.eventType ?? "";
     message.payload = object.payload ?? Buffer.alloc(0);
     message.timestamp = object.timestamp ?? 0;
+    message.metadata = Object.entries(object.metadata ?? {}).reduce<{ [key: string]: string }>((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = globalThis.String(value);
+      }
+      return acc;
+    }, {});
+    return message;
+  },
+};
+
+function createBaseEvent_MetadataEntry(): Event_MetadataEntry {
+  return { key: "", value: "" };
+}
+
+export const Event_MetadataEntry = {
+  encode(message: Event_MetadataEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== "") {
+      writer.uint32(18).string(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): Event_MetadataEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseEvent_MetadataEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): Event_MetadataEntry {
+    return {
+      key: isSet(object.key) ? globalThis.String(object.key) : "",
+      value: isSet(object.value) ? globalThis.String(object.value) : "",
+    };
+  },
+
+  toJSON(message: Event_MetadataEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<Event_MetadataEntry>, I>>(base?: I): Event_MetadataEntry {
+    return Event_MetadataEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Event_MetadataEntry>, I>>(object: I): Event_MetadataEntry {
+    const message = createBaseEvent_MetadataEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? "";
     return message;
   },
 };
 
 function createBaseAppendEventRequest(): AppendEventRequest {
-  return { streamId: "", events: [], expectedVersion: 0 };
+  return { streamId: "", events: [], expectedVersion: 0, isForwarded: false };
 }
 
 export const AppendEventRequest = {
@@ -270,7 +436,10 @@ export const AppendEventRequest = {
       Event.encode(v!, writer.uint32(18).fork()).ldelim();
     }
     if (message.expectedVersion !== 0) {
-      writer.uint32(24).uint64(message.expectedVersion);
+      writer.uint32(24).int64(message.expectedVersion);
+    }
+    if (message.isForwarded !== false) {
+      writer.uint32(32).bool(message.isForwarded);
     }
     return writer;
   },
@@ -301,7 +470,14 @@ export const AppendEventRequest = {
             break;
           }
 
-          message.expectedVersion = longToNumber(reader.uint64() as Long);
+          message.expectedVersion = longToNumber(reader.int64() as Long);
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.isForwarded = reader.bool();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -317,6 +493,7 @@ export const AppendEventRequest = {
       streamId: isSet(object.streamId) ? globalThis.String(object.streamId) : "",
       events: globalThis.Array.isArray(object?.events) ? object.events.map((e: any) => Event.fromJSON(e)) : [],
       expectedVersion: isSet(object.expectedVersion) ? globalThis.Number(object.expectedVersion) : 0,
+      isForwarded: isSet(object.isForwarded) ? globalThis.Boolean(object.isForwarded) : false,
     };
   },
 
@@ -331,6 +508,9 @@ export const AppendEventRequest = {
     if (message.expectedVersion !== 0) {
       obj.expectedVersion = Math.round(message.expectedVersion);
     }
+    if (message.isForwarded !== false) {
+      obj.isForwarded = message.isForwarded;
+    }
     return obj;
   },
 
@@ -342,6 +522,7 @@ export const AppendEventRequest = {
     message.streamId = object.streamId ?? "";
     message.events = object.events?.map((e) => Event.fromPartial(e)) || [];
     message.expectedVersion = object.expectedVersion ?? 0;
+    message.isForwarded = object.isForwarded ?? false;
     return message;
   },
 };
@@ -1370,8 +1551,363 @@ export const GetSchemaResponse = {
   },
 };
 
+function createBaseSnapshot(): Snapshot {
+  return { streamId: "", version: 0, payload: Buffer.alloc(0), timestamp: 0 };
+}
+
+export const Snapshot = {
+  encode(message: Snapshot, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.streamId !== "") {
+      writer.uint32(10).string(message.streamId);
+    }
+    if (message.version !== 0) {
+      writer.uint32(16).uint64(message.version);
+    }
+    if (message.payload.length !== 0) {
+      writer.uint32(26).bytes(message.payload);
+    }
+    if (message.timestamp !== 0) {
+      writer.uint32(32).uint64(message.timestamp);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): Snapshot {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSnapshot();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.streamId = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.version = longToNumber(reader.uint64() as Long);
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.payload = reader.bytes() as Buffer;
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.timestamp = longToNumber(reader.uint64() as Long);
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): Snapshot {
+    return {
+      streamId: isSet(object.streamId) ? globalThis.String(object.streamId) : "",
+      version: isSet(object.version) ? globalThis.Number(object.version) : 0,
+      payload: isSet(object.payload) ? Buffer.from(bytesFromBase64(object.payload)) : Buffer.alloc(0),
+      timestamp: isSet(object.timestamp) ? globalThis.Number(object.timestamp) : 0,
+    };
+  },
+
+  toJSON(message: Snapshot): unknown {
+    const obj: any = {};
+    if (message.streamId !== "") {
+      obj.streamId = message.streamId;
+    }
+    if (message.version !== 0) {
+      obj.version = Math.round(message.version);
+    }
+    if (message.payload.length !== 0) {
+      obj.payload = base64FromBytes(message.payload);
+    }
+    if (message.timestamp !== 0) {
+      obj.timestamp = Math.round(message.timestamp);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<Snapshot>, I>>(base?: I): Snapshot {
+    return Snapshot.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Snapshot>, I>>(object: I): Snapshot {
+    const message = createBaseSnapshot();
+    message.streamId = object.streamId ?? "";
+    message.version = object.version ?? 0;
+    message.payload = object.payload ?? Buffer.alloc(0);
+    message.timestamp = object.timestamp ?? 0;
+    return message;
+  },
+};
+
+function createBaseSaveSnapshotRequest(): SaveSnapshotRequest {
+  return { snapshot: undefined };
+}
+
+export const SaveSnapshotRequest = {
+  encode(message: SaveSnapshotRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.snapshot !== undefined) {
+      Snapshot.encode(message.snapshot, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SaveSnapshotRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSaveSnapshotRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.snapshot = Snapshot.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SaveSnapshotRequest {
+    return { snapshot: isSet(object.snapshot) ? Snapshot.fromJSON(object.snapshot) : undefined };
+  },
+
+  toJSON(message: SaveSnapshotRequest): unknown {
+    const obj: any = {};
+    if (message.snapshot !== undefined) {
+      obj.snapshot = Snapshot.toJSON(message.snapshot);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SaveSnapshotRequest>, I>>(base?: I): SaveSnapshotRequest {
+    return SaveSnapshotRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SaveSnapshotRequest>, I>>(object: I): SaveSnapshotRequest {
+    const message = createBaseSaveSnapshotRequest();
+    message.snapshot = (object.snapshot !== undefined && object.snapshot !== null)
+      ? Snapshot.fromPartial(object.snapshot)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseSaveSnapshotResponse(): SaveSnapshotResponse {
+  return { success: false };
+}
+
+export const SaveSnapshotResponse = {
+  encode(message: SaveSnapshotResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.success !== false) {
+      writer.uint32(8).bool(message.success);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SaveSnapshotResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSaveSnapshotResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.success = reader.bool();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SaveSnapshotResponse {
+    return { success: isSet(object.success) ? globalThis.Boolean(object.success) : false };
+  },
+
+  toJSON(message: SaveSnapshotResponse): unknown {
+    const obj: any = {};
+    if (message.success !== false) {
+      obj.success = message.success;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SaveSnapshotResponse>, I>>(base?: I): SaveSnapshotResponse {
+    return SaveSnapshotResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SaveSnapshotResponse>, I>>(object: I): SaveSnapshotResponse {
+    const message = createBaseSaveSnapshotResponse();
+    message.success = object.success ?? false;
+    return message;
+  },
+};
+
+function createBaseGetSnapshotRequest(): GetSnapshotRequest {
+  return { streamId: "" };
+}
+
+export const GetSnapshotRequest = {
+  encode(message: GetSnapshotRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.streamId !== "") {
+      writer.uint32(10).string(message.streamId);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GetSnapshotRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetSnapshotRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.streamId = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetSnapshotRequest {
+    return { streamId: isSet(object.streamId) ? globalThis.String(object.streamId) : "" };
+  },
+
+  toJSON(message: GetSnapshotRequest): unknown {
+    const obj: any = {};
+    if (message.streamId !== "") {
+      obj.streamId = message.streamId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GetSnapshotRequest>, I>>(base?: I): GetSnapshotRequest {
+    return GetSnapshotRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetSnapshotRequest>, I>>(object: I): GetSnapshotRequest {
+    const message = createBaseGetSnapshotRequest();
+    message.streamId = object.streamId ?? "";
+    return message;
+  },
+};
+
+function createBaseGetSnapshotResponse(): GetSnapshotResponse {
+  return { snapshot: undefined, found: false };
+}
+
+export const GetSnapshotResponse = {
+  encode(message: GetSnapshotResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.snapshot !== undefined) {
+      Snapshot.encode(message.snapshot, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.found !== false) {
+      writer.uint32(16).bool(message.found);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GetSnapshotResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetSnapshotResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.snapshot = Snapshot.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.found = reader.bool();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetSnapshotResponse {
+    return {
+      snapshot: isSet(object.snapshot) ? Snapshot.fromJSON(object.snapshot) : undefined,
+      found: isSet(object.found) ? globalThis.Boolean(object.found) : false,
+    };
+  },
+
+  toJSON(message: GetSnapshotResponse): unknown {
+    const obj: any = {};
+    if (message.snapshot !== undefined) {
+      obj.snapshot = Snapshot.toJSON(message.snapshot);
+    }
+    if (message.found !== false) {
+      obj.found = message.found;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GetSnapshotResponse>, I>>(base?: I): GetSnapshotResponse {
+    return GetSnapshotResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetSnapshotResponse>, I>>(object: I): GetSnapshotResponse {
+    const message = createBaseGetSnapshotResponse();
+    message.snapshot = (object.snapshot !== undefined && object.snapshot !== null)
+      ? Snapshot.fromPartial(object.snapshot)
+      : undefined;
+    message.found = object.found ?? false;
+    return message;
+  },
+};
+
+/** Core EventStore Service interface. */
 export type EventStoreService = typeof EventStoreService;
 export const EventStoreService = {
+  /** Appends events to a stream. Enforces OCC and Schema Validation. */
   appendEvent: {
     path: "/eventstore.EventStore/AppendEvent",
     requestStream: false,
@@ -1381,6 +1917,7 @@ export const EventStoreService = {
     responseSerialize: (value: AppendEventResponse) => Buffer.from(AppendEventResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => AppendEventResponse.decode(value),
   },
+  /** Retrieves events from a stream. */
   getEvents: {
     path: "/eventstore.EventStore/GetEvents",
     requestStream: false,
@@ -1390,7 +1927,7 @@ export const EventStoreService = {
     responseSerialize: (value: Event) => Buffer.from(Event.encode(value).finish()),
     responseDeserialize: (value: Buffer) => Event.decode(value),
   },
-  /** Schema Management */
+  /** Registers or updates a Schema definition. */
   upsertSchema: {
     path: "/eventstore.EventStore/UpsertSchema",
     requestStream: false,
@@ -1400,6 +1937,7 @@ export const EventStoreService = {
     responseSerialize: (value: UpsertSchemaResponse) => Buffer.from(UpsertSchemaResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => UpsertSchemaResponse.decode(value),
   },
+  /** Retrieves a Schema definition. */
   getSchema: {
     path: "/eventstore.EventStore/GetSchema",
     requestStream: false,
@@ -1409,17 +1947,45 @@ export const EventStoreService = {
     responseSerialize: (value: GetSchemaResponse) => Buffer.from(GetSchemaResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => GetSchemaResponse.decode(value),
   },
+  /** Saves a snapshot for a stream at a specific version. */
+  saveSnapshot: {
+    path: "/eventstore.EventStore/SaveSnapshot",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: SaveSnapshotRequest) => Buffer.from(SaveSnapshotRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => SaveSnapshotRequest.decode(value),
+    responseSerialize: (value: SaveSnapshotResponse) => Buffer.from(SaveSnapshotResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => SaveSnapshotResponse.decode(value),
+  },
+  /** Retrieves the latest snapshot for a stream. */
+  getSnapshot: {
+    path: "/eventstore.EventStore/GetSnapshot",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: GetSnapshotRequest) => Buffer.from(GetSnapshotRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => GetSnapshotRequest.decode(value),
+    responseSerialize: (value: GetSnapshotResponse) => Buffer.from(GetSnapshotResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => GetSnapshotResponse.decode(value),
+  },
 } as const;
 
 export interface EventStoreServer extends UntypedServiceImplementation {
+  /** Appends events to a stream. Enforces OCC and Schema Validation. */
   appendEvent: handleUnaryCall<AppendEventRequest, AppendEventResponse>;
+  /** Retrieves events from a stream. */
   getEvents: handleServerStreamingCall<GetEventsRequest, Event>;
-  /** Schema Management */
+  /** Registers or updates a Schema definition. */
   upsertSchema: handleUnaryCall<UpsertSchemaRequest, UpsertSchemaResponse>;
+  /** Retrieves a Schema definition. */
   getSchema: handleUnaryCall<GetSchemaRequest, GetSchemaResponse>;
+  /** Saves a snapshot for a stream at a specific version. */
+  saveSnapshot: handleUnaryCall<SaveSnapshotRequest, SaveSnapshotResponse>;
+  /** Retrieves the latest snapshot for a stream. */
+  getSnapshot: handleUnaryCall<GetSnapshotRequest, GetSnapshotResponse>;
 }
 
 export interface EventStoreClient extends Client {
+  /** Appends events to a stream. Enforces OCC and Schema Validation. */
   appendEvent(
     request: AppendEventRequest,
     callback: (error: ServiceError | null, response: AppendEventResponse) => void,
@@ -1435,13 +2001,14 @@ export interface EventStoreClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: AppendEventResponse) => void,
   ): ClientUnaryCall;
+  /** Retrieves events from a stream. */
   getEvents(request: GetEventsRequest, options?: Partial<CallOptions>): ClientReadableStream<Event>;
   getEvents(
     request: GetEventsRequest,
     metadata?: Metadata,
     options?: Partial<CallOptions>,
   ): ClientReadableStream<Event>;
-  /** Schema Management */
+  /** Registers or updates a Schema definition. */
   upsertSchema(
     request: UpsertSchemaRequest,
     callback: (error: ServiceError | null, response: UpsertSchemaResponse) => void,
@@ -1457,6 +2024,7 @@ export interface EventStoreClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: UpsertSchemaResponse) => void,
   ): ClientUnaryCall;
+  /** Retrieves a Schema definition. */
   getSchema(
     request: GetSchemaRequest,
     callback: (error: ServiceError | null, response: GetSchemaResponse) => void,
@@ -1471,6 +2039,38 @@ export interface EventStoreClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: GetSchemaResponse) => void,
+  ): ClientUnaryCall;
+  /** Saves a snapshot for a stream at a specific version. */
+  saveSnapshot(
+    request: SaveSnapshotRequest,
+    callback: (error: ServiceError | null, response: SaveSnapshotResponse) => void,
+  ): ClientUnaryCall;
+  saveSnapshot(
+    request: SaveSnapshotRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: SaveSnapshotResponse) => void,
+  ): ClientUnaryCall;
+  saveSnapshot(
+    request: SaveSnapshotRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: SaveSnapshotResponse) => void,
+  ): ClientUnaryCall;
+  /** Retrieves the latest snapshot for a stream. */
+  getSnapshot(
+    request: GetSnapshotRequest,
+    callback: (error: ServiceError | null, response: GetSnapshotResponse) => void,
+  ): ClientUnaryCall;
+  getSnapshot(
+    request: GetSnapshotRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: GetSnapshotResponse) => void,
+  ): ClientUnaryCall;
+  getSnapshot(
+    request: GetSnapshotRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: GetSnapshotResponse) => void,
   ): ClientUnaryCall;
 }
 

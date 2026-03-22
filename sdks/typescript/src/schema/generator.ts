@@ -63,7 +63,7 @@ export class SchemaGenerator {
     private static buildConstraints(opts: GraveyardFieldOptions): FieldConstraints | undefined {
         let hasConstraints = false;
         const c: FieldConstraints = {
-            required: false, // logic for required vs nullable
+            required: opts.nullable === false
         };
 
         if (opts.min !== undefined) { c.minValue = opts.min; hasConstraints = true; }
@@ -72,6 +72,6 @@ export class SchemaGenerator {
         if (opts.maxLength !== undefined) { c.maxLength = opts.maxLength; hasConstraints = true; }
         if (opts.regex !== undefined) { c.regex = opts.regex; hasConstraints = true; }
 
-        return hasConstraints ? c : undefined;
+        return hasConstraints || c.required ? c : undefined;
     }
 }

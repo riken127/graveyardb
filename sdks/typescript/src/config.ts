@@ -3,6 +3,7 @@ export interface EventStoreConfig {
     port: number;
     useTls: boolean;
     timeoutMs: number;
+    authToken?: string;
 }
 
 export const defaultConfig: EventStoreConfig = {

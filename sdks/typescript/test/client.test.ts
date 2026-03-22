@@ -1,7 +1,4 @@
-import { EventStoreClient } from '../src/client';
-import { GraveyardEntity } from '../src/decorators/entity';
-import { GraveyardField } from '../src/decorators/field';
-import { SchemaGenerator } from '../src/schema/generator';
+import { ANY_VERSION, EventStoreClient, GraveyardEntity, GraveyardField, SchemaGenerator, normalizeExpectedVersion } from '../src';
 
 @GraveyardEntity("user_test")
 class UserTest {
@@ -40,5 +37,12 @@ describe('EventStoreClient', () => {
 
     it('should instantiate', () => {
         expect(client).toBeDefined();
+    });
+
+    it('should normalize expected version sentinel and validate bounds', () => {
+        expect(normalizeExpectedVersion(ANY_VERSION)).toBe(ANY_VERSION);
+        expect(normalizeExpectedVersion(4)).toBe(4);
+        expect(() => normalizeExpectedVersion(-2)).toThrow();
+        expect(() => normalizeExpectedVersion(1.5)).toThrow();
     });
 });
