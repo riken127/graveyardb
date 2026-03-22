@@ -118,6 +118,35 @@ impl ScyllaStore {
     pub fn get_session(&self) -> &Session {
         &self.session
     }
+
+    async fn fetch_current_version(&self, stream: &str) -> Result<u64, EventStoreError> {
+        let query = format!(
+            "SELECT version FROM {}.events WHERE stream_id = ? ORDER BY version DESC LIMIT 1",
+            self.keyspace
+        );
+
+        let query_result = self
+            .session
+            .query_unpaged(query, (stream,))
+            .await
+            .map_err(|e| EventStoreError::StorageError(e.to_string()))?;
+
+        let rows_result = query_result
+            .into_rows_result()
+            .map_err(|e| EventStoreError::StorageError(e.to_string()))?;
+
+        let mut rows = rows_result
+            .rows::<(i64,)>()
+            .map_err(|e| EventStoreError::StorageError(e.to_string()))?;
+
+        match rows.next() {
+            Some(row) => {
+                let (version,) = row.map_err(|e| EventStoreError::StorageError(e.to_string()))?;
+                Ok(version as u64)
+            }
+            None => Ok(0),
+        }
+    }
 }
 
 use crate::domain::events::event::{Event, Transition};
@@ -134,6 +163,14 @@ impl EventStore for ScyllaStore {
         mut event: Event,
         expected_version: u64,
     ) -> Result<(), EventStoreError> {
+        let current_version = self.fetch_current_version(stream).await?;
+        if current_version != expected_version {
+            return Err(EventStoreError::ConcurrencyError {
+                expected: expected_version,
+                actual: current_version,
+            });
+        }
+
         let query = format!(
             "INSERT INTO {}.events (stream_id, version, id, event_type, payload, timestamp, metadata, transition_name, transition_from_state, transition_to_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS",
             self.keyspace
@@ -331,5 +368,41 @@ impl EventStore for ScyllaStore {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn exact_expected_version_check_is_strict() {
+        fn validate(
+            current_version: u64,
+            expected_version: u64,
+        ) -> Result<(), super::EventStoreError> {
+            if current_version != expected_version {
+                return Err(super::EventStoreError::ConcurrencyError {
+                    expected: expected_version,
+                    actual: current_version,
+                });
+            }
+
+            Ok(())
+        }
+
+        assert!(validate(3, 3).is_ok());
+        assert!(matches!(
+            validate(3, 1),
+            Err(super::EventStoreError::ConcurrencyError {
+                expected: 1,
+                actual: 3
+            })
+        ));
+        assert!(matches!(
+            validate(1, 3),
+            Err(super::EventStoreError::ConcurrencyError {
+                expected: 3,
+                actual: 1
+            })
+        ));
     }
 }

@@ -3,6 +3,7 @@ use crate::api::{AppendEventRequest, Event as ProtoEvent};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 
@@ -11,14 +12,27 @@ use tonic::transport::Channel;
 pub struct ClusterClient {
     clients: Arc<RwLock<HashMap<String, EventStoreClient<Channel>>>>,
     auth_token: Option<String>,
+    request_timeout: Duration,
+    use_tls: bool,
 }
 
 impl ClusterClient {
     /// Creates a forwarding client pool.
     pub fn new(auth_token: Option<String>) -> Self {
+        Self::with_transport(auth_token, Duration::from_secs(3), false)
+    }
+
+    /// Creates a forwarding client pool with explicit transport settings.
+    pub fn with_transport(
+        auth_token: Option<String>,
+        request_timeout: Duration,
+        use_tls: bool,
+    ) -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             auth_token,
+            request_timeout,
+            use_tls,
         }
     }
 }
@@ -47,7 +61,7 @@ impl ClusterClient {
             return Ok(client.clone());
         }
 
-        let uri = format!("http://{}", addr);
+        let uri = peer_uri(addr, self.use_tls);
         let channel = Channel::from_shared(uri)
             .map_err(|e| e.to_string())?
             .connect()
@@ -83,6 +97,7 @@ impl ClusterClient {
         };
 
         let mut request = tonic::Request::new(req);
+        request.set_timeout(self.request_timeout);
         if let Some(token) = &self.auth_token {
             let auth_value = format!("Bearer {}", token);
             if let Ok(meta_val) = tonic::metadata::MetadataValue::from_str(&auth_value) {
@@ -97,5 +112,37 @@ impl ClusterClient {
             .into_inner();
 
         Ok(resp.success)
+    }
+}
+
+fn peer_uri(addr: &str, use_tls: bool) -> String {
+    if addr.contains("://") {
+        return addr.to_string();
+    }
+
+    let scheme = if use_tls { "https" } else { "http" };
+    format!("{scheme}://{addr}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::peer_uri;
+
+    #[test]
+    fn uses_http_for_plaintext_peers() {
+        assert_eq!(peer_uri("127.0.0.1:50051", false), "http://127.0.0.1:50051");
+    }
+
+    #[test]
+    fn uses_https_for_tls_peers() {
+        assert_eq!(peer_uri("127.0.0.1:50051", true), "https://127.0.0.1:50051");
+    }
+
+    #[test]
+    fn preserves_explicit_scheme() {
+        assert_eq!(
+            peer_uri("https://peer.example.com:50051", false),
+            "https://peer.example.com:50051"
+        );
     }
 }

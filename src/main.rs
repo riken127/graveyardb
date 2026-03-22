@@ -45,12 +45,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // 2. Pipeline
-    let pipeline = Arc::new(EventPipeline::new(
+    let pipeline = Arc::new(EventPipeline::new_with_transport(
         storage,
         config.cluster_nodes.clone(),
         config.node_id,
         config.auth_token.clone(),
         config.schema_validation_hard_fail,
+        config.request_timeout,
+        config.tls_cert_path.is_some() && config.tls_key_path.is_some(),
     ));
 
     // 3. Snapshot Store (Local RocksDB)

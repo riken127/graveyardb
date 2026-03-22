@@ -44,9 +44,15 @@ impl Worker {
         if expected_version < -1 {
             return Err(PipelineError::InvalidExpectedVersion(expected_version));
         }
+        if events.len() != 1 {
+            return Err(PipelineError::BatchAppendUnsupported {
+                stream_id: stream_id.to_string(),
+                event_count: events.len(),
+            });
+        }
 
         // Resolve the starting expected version.
-        let mut current_version_u64 = if expected_version == -1 {
+        let current_version_u64 = if expected_version == -1 {
             let current_events = self
                 .store
                 .fetch_stream(stream_id)
@@ -60,20 +66,15 @@ impl Worker {
             expected_version as u64
         };
 
-        // Ensure each event carries the target stream id.
-        for event in events.iter_mut() {
-            event.stream_id = stream_id.to_string();
-        }
+        let mut event = events
+            .pop()
+            .expect("single-event guard should ensure one event is present");
+        event.stream_id = stream_id.to_string();
 
-        // Persist events sequentially. This loop is intentionally non-transactional;
-        // a storage backend can observe partial writes if a later append fails.
-        for event in events.drain(..) {
-            self.store
-                .append_event(stream_id, event, current_version_u64)
-                .await
-                .map_err(PipelineError::from)?;
-            current_version_u64 += 1;
-        }
+        self.store
+            .append_event(stream_id, event, current_version_u64)
+            .await
+            .map_err(PipelineError::from)?;
 
         Ok(())
     }

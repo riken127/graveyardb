@@ -10,6 +10,7 @@ use crate::api::{
 };
 use crate::domain::events::event::Event as DomainEvent;
 use crate::pipeline::{EventPipeline, PipelineError, SchemaUpsertError};
+use crate::storage::snapshot::Snapshot;
 
 pub mod auth;
 
@@ -160,12 +161,33 @@ impl EventStore for GrpcService {
             .snapshot
             .ok_or_else(|| Status::invalid_argument("Missing snapshot"))?;
 
-        let snapshot = crate::storage::snapshot::Snapshot {
+        let snapshot = Snapshot {
             stream_id: proto_snap.stream_id,
             version: proto_snap.version,
             payload: proto_snap.payload,
             timestamp: proto_snap.timestamp,
         };
+
+        let current_stream_version = self
+            .pipeline
+            .fetch_stream(&snapshot.stream_id)
+            .await
+            .map_err(Status::internal)?
+            .last()
+            .map(|event| event.sequence_number)
+            .unwrap_or(0);
+
+        let existing_snapshot = self
+            .snapshot_store
+            .get_snapshot(&snapshot.stream_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        validate_snapshot_write(
+            &snapshot,
+            current_stream_version,
+            existing_snapshot.as_ref(),
+        )?;
 
         self.snapshot_store
             .save_snapshot(snapshot)
@@ -226,6 +248,13 @@ fn status_from_pipeline_error(error: PipelineError) -> Status {
             "expected_version must be -1 or a non-negative version, got {}",
             value
         )),
+        PipelineError::BatchAppendUnsupported {
+            stream_id,
+            event_count,
+        } => Status::invalid_argument(format!(
+            "batch append of {} events for stream {} is not supported yet",
+            event_count, stream_id
+        )),
         PipelineError::NotOwner {
             stream_id,
             owner,
@@ -238,6 +267,14 @@ fn status_from_pipeline_error(error: PipelineError) -> Status {
         PipelineError::Concurrency { expected, actual } => Status::aborted(format!(
             "expected version {} does not match current version {}",
             expected, actual
+        )),
+        PipelineError::SchemaLookup {
+            stream_id,
+            event_type,
+            reason,
+        } => Status::internal(format!(
+            "schema lookup failed for stream {}, event {}: {}",
+            stream_id, event_type, reason
         )),
         PipelineError::Forwarding { target, reason } => Status::unavailable(format!(
             "failed to forward append to {}: {}",
@@ -271,13 +308,94 @@ fn status_from_schema_upsert_error(error: SchemaUpsertError) -> Status {
     }
 }
 
+fn validate_snapshot_write(
+    snapshot: &Snapshot,
+    current_stream_version: u64,
+    existing_snapshot: Option<&Snapshot>,
+) -> Result<(), Status> {
+    if snapshot.version > current_stream_version {
+        return Err(Status::invalid_argument(format!(
+            "snapshot version {} is ahead of current stream version {} for stream {}",
+            snapshot.version, current_stream_version, snapshot.stream_id
+        )));
+    }
+
+    if snapshot.version < current_stream_version {
+        return Err(Status::invalid_argument(format!(
+            "snapshot version {} is stale for current stream version {} on stream {}",
+            snapshot.version, current_stream_version, snapshot.stream_id
+        )));
+    }
+
+    if let Some(existing) = existing_snapshot {
+        if snapshot.version < existing.version {
+            return Err(Status::invalid_argument(format!(
+                "snapshot version {} is older than existing snapshot version {} for stream {}",
+                snapshot.version, existing.version, snapshot.stream_id
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         status_from_pipeline_error, status_from_schema_upsert_error, validate_expected_version,
+        validate_snapshot_write, GrpcService,
     };
+    use crate::api::event_store_server::EventStore as GrpcEventStore;
+    use crate::domain::events::event::{Event, Transition};
+    use crate::domain::events::event_kind::{EventKind, EventPayload};
     use crate::pipeline::{PipelineError, SchemaUpsertError};
-    use tonic::Code;
+    use crate::storage::memory::InMemoryEventStore;
+    use crate::storage::snapshot::{Snapshot, SnapshotError, SnapshotStore};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    use tonic::{Code, Request};
+
+    struct MemorySnapshotStore {
+        snapshots: Arc<RwLock<HashMap<String, Snapshot>>>,
+    }
+
+    impl MemorySnapshotStore {
+        fn new() -> Self {
+            Self {
+                snapshots: Arc::new(RwLock::new(HashMap::new())),
+            }
+        }
+    }
+
+    #[tonic::async_trait]
+    impl SnapshotStore for MemorySnapshotStore {
+        async fn save_snapshot(&self, snapshot: Snapshot) -> Result<(), SnapshotError> {
+            self.snapshots
+                .write()
+                .await
+                .insert(snapshot.stream_id.clone(), snapshot);
+            Ok(())
+        }
+
+        async fn get_snapshot(&self, stream_id: &str) -> Result<Option<Snapshot>, SnapshotError> {
+            Ok(self.snapshots.read().await.get(stream_id).cloned())
+        }
+    }
+
+    fn test_service() -> GrpcService {
+        let storage = Arc::new(InMemoryEventStore::new());
+        let pipeline = Arc::new(crate::pipeline::EventPipeline::new_with_transport(
+            storage,
+            vec!["127.0.0.1:50051".to_string()],
+            0,
+            None,
+            false,
+            std::time::Duration::from_secs(3),
+            false,
+        ));
+        GrpcService::new(pipeline, Arc::new(MemorySnapshotStore::new()))
+    }
 
     #[test]
     fn rejects_expected_version_below_sentinel() {
@@ -313,5 +431,74 @@ mod tests {
             details: "field age applies numeric constraints to a non-number type".to_string(),
         });
         assert_eq!(status.code(), Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn rejects_future_and_stale_snapshot_versions() {
+        let snapshot = Snapshot {
+            stream_id: "stream-1".to_string(),
+            version: 5,
+            payload: Vec::new(),
+            timestamp: 0,
+        };
+
+        let err = validate_snapshot_write(&snapshot, 4, None).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+
+        let err = validate_snapshot_write(&snapshot, 6, None).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn save_snapshot_rejects_versions_that_are_ahead_or_behind_the_stream() {
+        let service = test_service();
+        let event = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            EventPayload(vec![1]),
+            Transition::new("created", "none", "active"),
+        );
+
+        service
+            .pipeline
+            .append_event_as_owner("stream-1", vec![event], 0)
+            .await
+            .expect("append should succeed");
+
+        let future_snapshot = crate::api::Snapshot {
+            stream_id: "stream-1".to_string(),
+            version: 2,
+            payload: vec![1, 2, 3],
+            timestamp: 1,
+        };
+        let response = service
+            .save_snapshot(Request::new(crate::api::SaveSnapshotRequest {
+                snapshot: Some(future_snapshot),
+            }))
+            .await;
+        assert!(matches!(response, Err(status) if status.code() == Code::InvalidArgument));
+
+        let valid_snapshot = crate::api::Snapshot {
+            stream_id: "stream-1".to_string(),
+            version: 1,
+            payload: vec![4, 5, 6],
+            timestamp: 2,
+        };
+        service
+            .snapshot_store
+            .save_snapshot(Snapshot {
+                stream_id: "stream-1".to_string(),
+                version: 2,
+                payload: vec![9],
+                timestamp: 0,
+            })
+            .await
+            .expect("seed snapshot");
+        let response = service
+            .save_snapshot(Request::new(crate::api::SaveSnapshotRequest {
+                snapshot: Some(valid_snapshot),
+            }))
+            .await;
+        assert!(matches!(response, Err(status) if status.code() == Code::InvalidArgument));
     }
 }

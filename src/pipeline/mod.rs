@@ -13,6 +13,7 @@ use crate::storage::event_store::EventStoreError;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -29,6 +30,13 @@ const NUM_WORKERS: usize = 32;
 pub enum PipelineError {
     #[error("invalid expected version {0}; use -1 or a non-negative version")]
     InvalidExpectedVersion(i64),
+    #[error(
+        "batch append of {event_count} events for stream {stream_id} is not supported yet; append one event at a time"
+    )]
+    BatchAppendUnsupported {
+        stream_id: String,
+        event_count: usize,
+    },
     #[error("stream {stream_id} is owned by {owner}, not {current_node} (epoch {epoch})")]
     NotOwner {
         stream_id: String,
@@ -38,6 +46,12 @@ pub enum PipelineError {
     },
     #[error("concurrency conflict: expected {expected}, actual {actual}")]
     Concurrency { expected: u64, actual: u64 },
+    #[error("schema lookup failed for stream {stream_id}, event {event_type}: {reason}")]
+    SchemaLookup {
+        stream_id: String,
+        event_type: String,
+        reason: String,
+    },
     #[error("forwarding to {target} failed: {reason}")]
     Forwarding { target: String, reason: String },
     #[error("schema validation failed for stream {stream_id}, event {event_type}: {details}")]
@@ -99,6 +113,27 @@ impl EventPipeline {
         auth_token: Option<String>,
         schema_validation_hard_fail: bool,
     ) -> Self {
+        Self::new_with_transport(
+            storage,
+            cluster_nodes,
+            self_node_id,
+            auth_token,
+            schema_validation_hard_fail,
+            Duration::from_secs(3),
+            false,
+        )
+    }
+
+    /// Creates a new pipeline and worker pool with explicit forwarding transport settings.
+    pub fn new_with_transport(
+        storage: Arc<dyn EventStore + Send + Sync>,
+        cluster_nodes: Vec<String>,
+        self_node_id: u64,
+        auth_token: Option<String>,
+        schema_validation_hard_fail: bool,
+        request_timeout: Duration,
+        peer_use_tls: bool,
+    ) -> Self {
         let mut workers = Vec::with_capacity(NUM_WORKERS);
 
         for id in 0..NUM_WORKERS {
@@ -127,7 +162,8 @@ impl EventPipeline {
                 .unwrap_or_else(|| "127.0.0.1:50051".to_string())
         };
 
-        let cluster_client = ClusterClient::new(auth_token);
+        let cluster_client =
+            ClusterClient::with_transport(auth_token, request_timeout, peer_use_tls);
 
         Self {
             storage,
@@ -154,6 +190,7 @@ impl EventPipeline {
         if expected_version < -1 {
             return Err(PipelineError::InvalidExpectedVersion(expected_version));
         }
+        ensure_single_event(stream_id, events.len())?;
 
         let owner = self.topology.get_owner(stream_id);
 
@@ -192,6 +229,7 @@ impl EventPipeline {
         if expected_version < -1 {
             return Err(PipelineError::InvalidExpectedVersion(expected_version));
         }
+        ensure_single_event(stream_id, events.len())?;
 
         // Re-validate ownership to protect against stale callers.
         let owner = self.topology.get_owner(stream_id);
@@ -216,24 +254,34 @@ impl EventPipeline {
             }
 
             let type_str = event.event_type.to_string();
-            if let Ok(Some(schema)) = self.storage.get_schema(&type_str).await {
-                if let Err(errs) = crate::domain::schema::validation::validate_event_payload(
-                    &event.payload.0,
-                    &schema,
-                ) {
-                    if self.schema_validation_hard_fail {
-                        return Err(PipelineError::SchemaValidation {
-                            stream_id: stream_id.to_string(),
-                            event_type: type_str.clone(),
-                            details: format_validation_errors(&errs),
-                        });
+            match self.storage.get_schema(&type_str).await {
+                Ok(Some(schema)) => {
+                    if let Err(errs) = crate::domain::schema::validation::validate_event_payload(
+                        &event.payload.0,
+                        &schema,
+                    ) {
+                        if self.schema_validation_hard_fail {
+                            return Err(PipelineError::SchemaValidation {
+                                stream_id: stream_id.to_string(),
+                                event_type: type_str.clone(),
+                                details: format_validation_errors(&errs),
+                            });
+                        }
+                        tracing::warn!(
+                            stream_id = %stream_id,
+                            event_type = %type_str,
+                            errors = ?errs,
+                            "Schema validation failed; continuing because hard-fail mode is disabled"
+                        );
                     }
-                    tracing::warn!(
-                        stream_id = %stream_id,
-                        event_type = %type_str,
-                        errors = ?errs,
-                        "Schema validation failed; continuing because hard-fail mode is disabled"
-                    );
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    return Err(PipelineError::SchemaLookup {
+                        stream_id: stream_id.to_string(),
+                        event_type: type_str,
+                        reason: err.to_string(),
+                    });
                 }
             }
         }
@@ -315,6 +363,17 @@ fn format_contract_errors(errors: &[ContractError]) -> String {
         .join("; ")
 }
 
+fn ensure_single_event(stream_id: &str, event_count: usize) -> Result<(), PipelineError> {
+    if event_count != 1 {
+        return Err(PipelineError::BatchAppendUnsupported {
+            stream_id: stream_id.to_string(),
+            event_count,
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{EventPipeline, PipelineError};
@@ -322,7 +381,9 @@ mod tests {
     use crate::domain::events::event_kind::{EventKind, EventPayload};
     use crate::domain::schema::model::Schema;
     use crate::storage::event_store::{EventStore, EventStoreError};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::time::Duration;
     use tonic::async_trait;
 
     struct ConcurrencyStore;
@@ -354,15 +415,83 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn rejects_invalid_expected_version() {
-        let pipeline = EventPipeline::new(
-            Arc::new(ConcurrencyStore),
+    struct SchemaLookupErrorStore {
+        append_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl EventStore for SchemaLookupErrorStore {
+        async fn append_event(
+            &self,
+            _stream: &str,
+            _event: Event,
+            _expected_version: u64,
+        ) -> Result<(), EventStoreError> {
+            self.append_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn fetch_stream(&self, _stream: &str) -> Result<Vec<Event>, EventStoreError> {
+            Ok(Vec::new())
+        }
+
+        async fn upsert_schema(&self, _schema: Schema) -> Result<(), EventStoreError> {
+            Ok(())
+        }
+
+        async fn get_schema(&self, _name: &str) -> Result<Option<Schema>, EventStoreError> {
+            Err(EventStoreError::StorageError(
+                "schema store unavailable".to_string(),
+            ))
+        }
+    }
+
+    struct NoopStore {
+        append_calls: Arc<AtomicUsize>,
+        schema_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl EventStore for NoopStore {
+        async fn append_event(
+            &self,
+            _stream: &str,
+            _event: Event,
+            _expected_version: u64,
+        ) -> Result<(), EventStoreError> {
+            self.append_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn fetch_stream(&self, _stream: &str) -> Result<Vec<Event>, EventStoreError> {
+            Ok(Vec::new())
+        }
+
+        async fn upsert_schema(&self, _schema: Schema) -> Result<(), EventStoreError> {
+            Ok(())
+        }
+
+        async fn get_schema(&self, _name: &str) -> Result<Option<Schema>, EventStoreError> {
+            self.schema_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+    }
+
+    fn test_pipeline(storage: Arc<dyn EventStore + Send + Sync>) -> EventPipeline {
+        EventPipeline::new_with_transport(
+            storage,
             vec!["127.0.0.1:50051".to_string()],
             0,
             None,
             false,
-        );
+            Duration::from_secs(3),
+            false,
+        )
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_expected_version() {
+        let pipeline = test_pipeline(Arc::new(ConcurrencyStore));
 
         let event = Event::new(
             "stream-1",
@@ -380,13 +509,7 @@ mod tests {
 
     #[tokio::test]
     async fn propagates_concurrency_conflicts() {
-        let pipeline = EventPipeline::new(
-            Arc::new(ConcurrencyStore),
-            vec!["127.0.0.1:50051".to_string()],
-            0,
-            None,
-            false,
-        );
+        let pipeline = test_pipeline(Arc::new(ConcurrencyStore));
 
         let event = Event::new(
             "stream-1",
@@ -409,13 +532,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_invalid_transition() {
-        let pipeline = EventPipeline::new(
-            Arc::new(ConcurrencyStore),
-            vec!["127.0.0.1:50051".to_string()],
-            0,
-            None,
-            false,
-        );
+        let pipeline = test_pipeline(Arc::new(ConcurrencyStore));
 
         let event = Event::new(
             "stream-1",
@@ -431,5 +548,71 @@ mod tests {
             result,
             Err(PipelineError::TransitionValidation { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn rejects_batch_appends_before_storage_access() {
+        let append_calls = Arc::new(AtomicUsize::new(0));
+        let schema_calls = Arc::new(AtomicUsize::new(0));
+        let pipeline = test_pipeline(Arc::new(NoopStore {
+            append_calls: append_calls.clone(),
+            schema_calls: schema_calls.clone(),
+        }));
+
+        let event_a = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            EventPayload(vec![1]),
+            Transition::new("created", "none", "active"),
+        );
+        let event_b = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            EventPayload(vec![2]),
+            Transition::new("updated", "active", "suspended"),
+        );
+
+        let result = pipeline
+            .append_event_as_owner("stream-1", vec![event_a, event_b], 0)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(PipelineError::BatchAppendUnsupported {
+                stream_id,
+                event_count: 2
+            }) if stream_id == "stream-1"
+        ));
+        assert_eq!(append_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(schema_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn fails_closed_when_schema_lookup_errors() {
+        let append_calls = Arc::new(AtomicUsize::new(0));
+        let pipeline = test_pipeline(Arc::new(SchemaLookupErrorStore {
+            append_calls: append_calls.clone(),
+        }));
+
+        let event = Event::new(
+            "stream-1",
+            EventKind::Custom("UserCreated".to_string()),
+            EventPayload(br#"{"name":"Ada"}"#.to_vec()),
+            Transition::new("created", "none", "active"),
+        );
+
+        let result = pipeline
+            .append_event_as_owner("stream-1", vec![event], 0)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(PipelineError::SchemaLookup {
+                stream_id,
+                event_type,
+                reason,
+            }) if stream_id == "stream-1" && event_type == "UserCreated" && reason.contains("schema store unavailable")
+        ));
+        assert_eq!(append_calls.load(Ordering::SeqCst), 0);
     }
 }
