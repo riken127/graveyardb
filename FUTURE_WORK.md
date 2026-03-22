@@ -16,6 +16,8 @@ GraveyardDB currently exposes the core event-store path, but it is still being h
 * Standardized `expected_version` semantics (`-1` sentinel) across server and SDKs.
 * Added structured append error mapping for better gRPC status responses.
 * Added `SCHEMA_VALIDATION_HARD_FAIL` toggle for strict schema enforcement.
+* Preserved custom `event_type` strings end-to-end (proto, pipeline, storage) for correct schema lookup.
+* Expanded server-side schema validation to cover regex, enums, arrays, nested sub-schemas, and non-null checks.
 * Added deployment guardrails: `REQUIRE_TLS` and `REQUIRE_AUTH`.
 * Made OpenTelemetry startup opt-in (`OTEL_ENABLED`) with optional fail-fast (`OTEL_FAIL_FAST`).
 * Added release docs/checklists and changelog workflow.

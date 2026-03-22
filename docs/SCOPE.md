@@ -16,11 +16,13 @@ The primary goals are:
 * Event appending through gRPC.
 * Event reading through gRPC.
 * Schema upsert and fetch.
+* Server-side schema validation (primitives, enums, arrays, nested schemas, and field constraints).
 * Snapshot save and fetch.
 * Optimistic concurrency checks with `expected_version`.
 * Pluggable storage with RocksDB and ScyllaDB backends.
 * Deterministic stream ownership and request forwarding across a configured node list.
 * Optional TLS and token-based auth hooks at the service boundary.
+* Configurable schema enforcement mode via `SCHEMA_VALIDATION_HARD_FAIL`.
 
 ### Out of Scope
 

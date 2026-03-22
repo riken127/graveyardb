@@ -5,6 +5,7 @@ GraveyardDB is a distributed event store with ScyllaDB-backed primary storage, R
 ## Current Status
 
 * The core Rust service handles append/read operations, schema management, snapshots, TLS, and token-based auth hooks.
+* Schema validation currently supports primitives, enums, arrays, nested sub-schemas, numeric bounds, string length bounds, and regex checks.
 * Cluster ownership is deterministic and based on the configured node list.
 * Go, Java, and TypeScript SDKs exist under `sdks/`, but each should be validated against the release checklist before production use.
 * Historical benchmark notes live in [BENCHMARKS.md](./BENCHMARKS.md); they are local-development measurements, not SLAs.
