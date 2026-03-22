@@ -8,8 +8,7 @@ import com.eventstore.client.model.FieldType;
 import com.eventstore.client.model.Schema;
 
 import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import java.lang.reflect.Modifier;
 
 public class SchemaGenerator {
 
@@ -29,6 +28,10 @@ public class SchemaGenerator {
         schemaBuilder.setName(entityAuth.value());
 
         for (java.lang.reflect.Field reflectField : clazz.getDeclaredFields()) {
+            if (reflectField.isSynthetic() || Modifier.isStatic(reflectField.getModifiers())) {
+                continue;
+            }
+
             Field protoField = generateField(reflectField);
             if (protoField != null) {
                 schemaBuilder.putFields(reflectField.getName(), protoField);
@@ -48,11 +51,11 @@ public class SchemaGenerator {
         if (fieldAuth != null) {
             fieldBuilder.setNullable(fieldAuth.nullable());
             fieldBuilder.setOverridesOnNull(fieldAuth.overridesOnNull());
-            
+
             // Constraints
             FieldConstraints.Builder constraintsBuilder = FieldConstraints.newBuilder();
             boolean hasConstraints = false;
-            
+
             if (!Double.isNaN(fieldAuth.min())) {
                 constraintsBuilder.setMinValue(fieldAuth.min());
                 hasConstraints = true;
@@ -73,11 +76,12 @@ public class SchemaGenerator {
                 constraintsBuilder.setRegex(fieldAuth.regex());
                 hasConstraints = true;
             }
-            
-            // Logic for "required" - if nullable is false, it is required?
-            // Or explicit field? Let's assume nullable=false implies required for now, or add functionality later.
-            // For now, mapping explicit constraints.
-            
+
+            if (!fieldAuth.nullable()) {
+                constraintsBuilder.setRequired(true);
+                hasConstraints = true;
+            }
+
             if (hasConstraints) {
                 fieldBuilder.setConstraints(constraintsBuilder.build());
             }
@@ -132,8 +136,12 @@ public class SchemaGenerator {
                 // Sub-schemas in this context are embedded structures.
                 String subName = type.getSimpleName();
                 Schema.Builder subSchemaBuilder = Schema.newBuilder().setName(subName);
-                
+
                 for (java.lang.reflect.Field subReflectField : type.getDeclaredFields()) {
+                    if (subReflectField.isSynthetic() || Modifier.isStatic(subReflectField.getModifiers())) {
+                        continue;
+                    }
+
                     Field subProtoField = generateField(subReflectField);
                     subSchemaBuilder.putFields(subReflectField.getName(), subProtoField);
                 }

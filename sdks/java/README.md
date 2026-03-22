@@ -1,11 +1,11 @@
 # EventStore Java SDK
 
-Java Client library for `graveyar_db` using gRPC. Supports Spring Boot, Async operations, and Optimistic Concurrency Control.
+Java client library for `graveyar_db` using gRPC. Supports Spring Boot, async operations, and optimistic concurrency control.
 
 ## Features
 
 - **Protocol**: gRPC with Protobuf.
-- **Concurrency**: Optimistic locking via `expected_version`.
+- **Concurrency**: Optimistic locking via `expectedVersion`.
 - **Resilience**: Configurable Timeouts.
 - **Performance**: Async API (`ListenableFuture`) and Sync API.
 - **Integration**: Spring Boot `@Service` and `@Configuration`.
@@ -33,6 +33,8 @@ Configure the client in your `application.properties` or `application.yml`:
 | `eventstore.port` | `50051` | gRPC port. |
 | `eventstore.use-tls` | `false` | Set `true` for Production to check certificates. |
 | `eventstore.timeout-ms` | `5000` | Timeout for requests in milliseconds. |
+
+The SDK also exposes the same defaults as a plain Java object via `EventStoreConfig`, so you can use it outside Spring if you prefer.
 
 ## Usage
 
@@ -64,7 +66,7 @@ Supported Constraints:
 - `regex`: Regular expression pattern.
 - `nullable`: Whether the field is optional (default: true).
 
-Register the schema (this generates the Proto schema and sends it to the server):
+Register the schema:
 
 ```java
 client.upsertSchema(UserProfile.class);
@@ -74,8 +76,8 @@ client.upsertSchema(UserProfile.class);
 
 ```java
 List<Event> events = List.of(Event.newBuilder()...build());
-// -1 for no version check
-boolean success = client.appendEvent("stream-1", events, -1);
+// Use EventStoreClient.ANY_VERSION for "append regardless of current stream version".
+boolean success = client.appendEvent("stream-1", events, EventStoreClient.ANY_VERSION);
 ```
 
 ### Append Async
@@ -102,10 +104,20 @@ while (events.hasNext()) {
 
 Build and run tests:
 
+```bash
+mvn test
+```
+
+Integration coverage is opt-in so local and CI runs stay green without a live backend:
+
+```bash
+EVENTSTORE_INTEGRATION_TESTS=true EVENTSTORE_HOST=localhost EVENTSTORE_PORT=50051 mvn test
+```
+
 ## Production Guide
 
 ### Performance
-The client uses gRPC-Netty, which manages **off-heap ring buffers** for high-performance I/O. To maximize throughput:
+The client uses gRPC-Netty, which manages off-heap buffers for high-performance I/O. To maximize throughput:
 - **Reuse Client**: Create one `EventStoreClient` bean and share it across threads. It is thread-safe and uses a single multiplexed connection.
 - **Use Async**: Prefer `appendEventAsync` for high-volume writes to avoid blocking threads.
 
@@ -120,4 +132,4 @@ eventstore.timeout-ms=2000
 ```
 
 ### Constraints & Data Integrity
-Use `@GraveyardField` constraints to enforce schema validation at the definition level. This ensures that the schema registered with the server is strict, preventing invalid data from entering the system (once server-side validation is active).
+Use `@GraveyardField` constraints to enforce schema validation at the definition level. Non-nullable fields are exported as `required=true` in the generated schema, which keeps the Java-side annotations aligned with validation behavior.

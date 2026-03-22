@@ -6,203 +6,255 @@ import com.eventstore.client.config.EventStoreConfig;
 import com.eventstore.client.model.AppendEventRequest;
 import com.eventstore.client.model.AppendEventResponse;
 import com.eventstore.client.model.Event;
-import com.eventstore.client.model.EventStoreGrpc;
 import com.eventstore.client.model.GetEventsRequest;
+import com.eventstore.client.model.GetSnapshotRequest;
+import com.eventstore.client.model.SaveSnapshotRequest;
+import com.eventstore.client.model.Snapshot;
+import com.eventstore.client.model.UpsertSchemaRequest;
 import com.eventstore.client.model.UpsertSchemaResponse;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import io.grpc.ManagedChannel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@ExtendWith(MockitoExtension.class)
 class EventStoreClientTest {
 
-    @Mock
-    private ManagedChannel managedChannel;
-
-    @Mock
+    private RecordingTransport transport;
     private EventStoreConfig eventStoreConfig;
-
-    @Mock
-    private EventStoreGrpc.EventStoreBlockingStub blockingStub;
-
-    @Mock
-    private EventStoreGrpc.EventStoreFutureStub futureStub;
-
     private EventStoreClient eventStoreClient;
 
     @BeforeEach
     void setUp() {
-        // Mock static factory methods for stubs
-        try (MockedStatic<EventStoreGrpc> mockedStatic = Mockito.mockStatic(EventStoreGrpc.class)) {
-            mockedStatic.when(() -> EventStoreGrpc.newBlockingStub(managedChannel)).thenReturn(blockingStub);
-            mockedStatic.when(() -> EventStoreGrpc.newFutureStub(managedChannel)).thenReturn(futureStub);
-            
-            // Mock config
-            when(eventStoreConfig.getTimeoutMs()).thenReturn(5000L);
-
-            // Instantiate client (this triggers the static mocks)
-            eventStoreClient = new EventStoreClient(managedChannel, eventStoreConfig);
-        }
+        transport = new RecordingTransport();
+        eventStoreConfig = new EventStoreConfig();
+        eventStoreConfig.setTimeoutMs(5000L);
+        eventStoreClient = new EventStoreClient(transport, eventStoreConfig);
     }
 
     @Test
     void appendEvent_Success() {
-        // Arrange
         String streamId = "test-stream";
         List<Event> events = Collections.singletonList(Event.newBuilder().setId("1").build());
         long expectedVersion = 10L;
 
-        AppendEventResponse response = AppendEventResponse.newBuilder().setSuccess(true).build();
-        
-        // Mock withDeadlineAfter chain
-        when(blockingStub.withDeadlineAfter(anyLong(), any(TimeUnit.class))).thenReturn(blockingStub);
-        when(blockingStub.appendEvent(any(AppendEventRequest.class))).thenReturn(response);
+        transport.appendEventResponse = AppendEventResponse.newBuilder().setSuccess(true).build();
 
-        // Act
         boolean result = eventStoreClient.appendEvent(streamId, events, expectedVersion);
 
-        // Assert
         assertTrue(result);
-        
-        // Verify arguments
-        ArgumentCaptor<AppendEventRequest> captor = ArgumentCaptor.forClass(AppendEventRequest.class);
-        verify(blockingStub).appendEvent(captor.capture());
-        AppendEventRequest request = captor.getValue();
-        
-        assertEquals(streamId, request.getStreamId());
-        assertEquals(expectedVersion, request.getExpectedVersion());
-        assertEquals(1, request.getEventsCount());
-        
-        // Verify timeout
-        verify(blockingStub).withDeadlineAfter(5000L, TimeUnit.MILLISECONDS);
+        assertNotNull(transport.lastAppendRequest);
+        assertEquals(streamId, transport.lastAppendRequest.getStreamId());
+        assertEquals(expectedVersion, transport.lastAppendRequest.getExpectedVersion());
+        assertEquals(1, transport.lastAppendRequest.getEventsCount());
+        assertEquals(5000L, transport.lastAppendTimeoutMs);
     }
 
     @Test
-    void appendEvent_Failure() {
-        // Arrange
-        AppendEventResponse response = AppendEventResponse.newBuilder().setSuccess(false).build();
-        when(blockingStub.withDeadlineAfter(anyLong(), any(TimeUnit.class))).thenReturn(blockingStub);
-        when(blockingStub.appendEvent(any(AppendEventRequest.class))).thenReturn(response);
+    void appendEvent_DefaultsToAnyVersion() {
+        transport.appendEventResponse = AppendEventResponse.newBuilder().setSuccess(false).build();
 
-        // Act
         boolean result = eventStoreClient.appendEvent("stream", Collections.emptyList());
 
-        // Assert
         assertFalse(result);
+        assertNotNull(transport.lastAppendRequest);
+        assertEquals(EventStoreClient.ANY_VERSION, transport.lastAppendRequest.getExpectedVersion());
+        assertEquals(5000L, transport.lastAppendTimeoutMs);
+    }
+
+    @Test
+    void appendEvent_RejectsUnsupportedNegativeVersion() {
+        assertThrows(IllegalArgumentException.class,
+                () -> eventStoreClient.appendEvent("stream", Collections.emptyList(), -2L));
     }
 
     @Test
     void getEvents_Success() {
-        // Arrange
         String streamId = "read-stream";
-        Iterator<Event> mockIterator = mock(Iterator.class);
-        
-        when(blockingStub.withDeadlineAfter(anyLong(), any(TimeUnit.class))).thenReturn(blockingStub);
-        when(blockingStub.getEvents(any(GetEventsRequest.class))).thenReturn(mockIterator);
+        Iterator<Event> mockIterator = Collections.<Event>emptyList().iterator();
+        transport.getEventsResponse = mockIterator;
 
-        // Act
         Iterator<Event> result = eventStoreClient.getEvents(streamId);
 
-        // Assert
         assertNotNull(result);
         assertSame(mockIterator, result);
-        
-        verify(blockingStub).withDeadlineAfter(5000L, TimeUnit.MILLISECONDS);
+        assertNotNull(transport.lastGetEventsRequest);
+        assertEquals(streamId, transport.lastGetEventsRequest.getStreamId());
+        assertEquals(5000L, transport.lastGetEventsTimeoutMs);
     }
 
     @Test
     void appendEventAsync_Success() {
-        // Arrange
-        String streamId = "async-stream";
         List<Event> events = Collections.emptyList();
         AppendEventResponse response = AppendEventResponse.newBuilder().setSuccess(true).build();
-        ListenableFuture<AppendEventResponse> futureResponse = Futures.immediateFuture(response);
+        transport.appendEventAsyncResponse = Futures.immediateFuture(response);
 
-        when(futureStub.withDeadlineAfter(anyLong(), any(TimeUnit.class))).thenReturn(futureStub);
-        when(futureStub.appendEvent(any(AppendEventRequest.class))).thenReturn(futureResponse);
+        ListenableFuture<AppendEventResponse> result = eventStoreClient.appendEventAsync("async-stream", events, -1);
 
-        // Act
-        ListenableFuture<AppendEventResponse> result = eventStoreClient.appendEventAsync(streamId, events, -1);
-
-        // Assert
         assertNotNull(result);
-        verify(futureStub).withDeadlineAfter(5000L, TimeUnit.MILLISECONDS);
+        assertNotNull(transport.lastAppendAsyncRequest);
+        assertEquals(EventStoreClient.ANY_VERSION, transport.lastAppendAsyncRequest.getExpectedVersion());
+        assertEquals(5000L, transport.lastAppendAsyncTimeoutMs);
     }
 
     @Test
     void upsertSchema_Success() {
-        // Arrange
-        UpsertSchemaResponse response = UpsertSchemaResponse.newBuilder().setSuccess(true).build();
-        when(blockingStub.withDeadlineAfter(anyLong(), any(TimeUnit.class))).thenReturn(blockingStub);
-        when(blockingStub.upsertSchema(any(com.eventstore.client.model.UpsertSchemaRequest.class))).thenReturn(response);
+        transport.upsertSchemaResponse = UpsertSchemaResponse.newBuilder().setSuccess(true).build();
 
-        // Act
         UpsertSchemaResponse result = eventStoreClient.upsertSchema(TestEntity.class);
 
-        // Assert
         assertTrue(result.getSuccess());
-        
-        ArgumentCaptor<com.eventstore.client.model.UpsertSchemaRequest> captor = ArgumentCaptor.forClass(com.eventstore.client.model.UpsertSchemaRequest.class);
-        verify(blockingStub).upsertSchema(captor.capture());
-        
-        com.eventstore.client.model.Schema schema = captor.getValue().getSchema();
+        assertNotNull(transport.lastUpsertSchemaRequest);
+        assertEquals(5000L, transport.lastUpsertSchemaTimeoutMs);
+
+        com.eventstore.client.model.Schema schema = transport.lastUpsertSchemaRequest.getSchema();
         assertEquals("test_entity", schema.getName());
         assertTrue(schema.getFieldsMap().containsKey("name"));
         assertTrue(schema.getFieldsMap().containsKey("age"));
+        assertTrue(schema.getFieldsMap().get("name").hasConstraints());
+        assertTrue(schema.getFieldsMap().get("name").getConstraints().getRequired());
     }
 
     @Test
     void upsertSchema_WithConstraints() {
-        // Arrange
-        UpsertSchemaResponse response = UpsertSchemaResponse.newBuilder().setSuccess(true).build();
-        when(blockingStub.withDeadlineAfter(anyLong(), any(TimeUnit.class))).thenReturn(blockingStub);
-        when(blockingStub.upsertSchema(any(com.eventstore.client.model.UpsertSchemaRequest.class))).thenReturn(response);
+        transport.upsertSchemaResponse = UpsertSchemaResponse.newBuilder().setSuccess(true).build();
 
-        // Act
         UpsertSchemaResponse result = eventStoreClient.upsertSchema(ConstrainedEntity.class);
 
-        // Assert
         assertTrue(result.getSuccess());
-        
-        ArgumentCaptor<com.eventstore.client.model.UpsertSchemaRequest> captor = ArgumentCaptor.forClass(com.eventstore.client.model.UpsertSchemaRequest.class);
-        verify(blockingStub).upsertSchema(captor.capture());
-        
-        com.eventstore.client.model.Schema schema = captor.getValue().getSchema();
+        assertNotNull(transport.lastUpsertSchemaRequest);
+        assertEquals(5000L, transport.lastUpsertSchemaTimeoutMs);
+
+        com.eventstore.client.model.Schema schema = transport.lastUpsertSchemaRequest.getSchema();
         assertTrue(schema.getFieldsMap().containsKey("age"));
-        
+
         com.eventstore.client.model.Field ageField = schema.getFieldsMap().get("age");
         assertTrue(ageField.hasConstraints());
         assertEquals(0.0, ageField.getConstraints().getMinValue());
         assertEquals(150.0, ageField.getConstraints().getMaxValue());
-        
+
         com.eventstore.client.model.Field usernameField = schema.getFieldsMap().get("username");
         assertTrue(usernameField.hasConstraints());
         assertEquals(3, usernameField.getConstraints().getMinLength());
         assertEquals("^[a-z]+$", usernameField.getConstraints().getRegex());
     }
 
+    @Test
+    void saveSnapshot_Success() {
+        transport.saveSnapshotResponse = true;
+
+        boolean saved = eventStoreClient.saveSnapshot("snapshot-stream", 3L, new byte[] {1, 2, 3}, 1234L);
+
+        assertTrue(saved);
+        assertNotNull(transport.lastSaveSnapshotRequest);
+        assertEquals(5000L, transport.lastSaveSnapshotTimeoutMs);
+        assertEquals("snapshot-stream", transport.lastSaveSnapshotRequest.getSnapshot().getStreamId());
+        assertEquals(3L, transport.lastSaveSnapshotRequest.getSnapshot().getVersion());
+    }
+
+    @Test
+    void getSnapshot_Success() {
+        Snapshot snapshot = Snapshot.newBuilder()
+                .setStreamId("snapshot-stream")
+                .setVersion(7L)
+                .setTimestamp(99L)
+                .build();
+
+        transport.getSnapshotResponse = snapshot;
+
+        Snapshot result = eventStoreClient.getSnapshot("snapshot-stream");
+
+        assertNotNull(result);
+        assertEquals("snapshot-stream", result.getStreamId());
+        assertEquals(7L, result.getVersion());
+        assertNotNull(transport.lastGetSnapshotRequest);
+        assertEquals(5000L, transport.lastGetSnapshotTimeoutMs);
+    }
+
+    private static final class RecordingTransport implements EventStoreTransport {
+        private AppendEventRequest lastAppendRequest;
+        private long lastAppendTimeoutMs;
+        private AppendEventResponse appendEventResponse = AppendEventResponse.newBuilder().setSuccess(true).build();
+
+        private AppendEventRequest lastAppendAsyncRequest;
+        private long lastAppendAsyncTimeoutMs;
+        private ListenableFuture<AppendEventResponse> appendEventAsyncResponse =
+                Futures.immediateFuture(AppendEventResponse.newBuilder().setSuccess(true).build());
+
+        private GetEventsRequest lastGetEventsRequest;
+        private long lastGetEventsTimeoutMs;
+        private Iterator<Event> getEventsResponse = Collections.emptyIterator();
+
+        private UpsertSchemaRequest lastUpsertSchemaRequest;
+        private long lastUpsertSchemaTimeoutMs;
+        private UpsertSchemaResponse upsertSchemaResponse = UpsertSchemaResponse.newBuilder().setSuccess(true).build();
+
+        private SaveSnapshotRequest lastSaveSnapshotRequest;
+        private long lastSaveSnapshotTimeoutMs;
+        private boolean saveSnapshotResponse = true;
+
+        private GetSnapshotRequest lastGetSnapshotRequest;
+        private long lastGetSnapshotTimeoutMs;
+        private Snapshot getSnapshotResponse;
+
+        @Override
+        public AppendEventResponse appendEvent(AppendEventRequest request, long timeoutMs) {
+            this.lastAppendRequest = request;
+            this.lastAppendTimeoutMs = timeoutMs;
+            return appendEventResponse;
+        }
+
+        @Override
+        public ListenableFuture<AppendEventResponse> appendEventAsync(AppendEventRequest request, long timeoutMs) {
+            this.lastAppendAsyncRequest = request;
+            this.lastAppendAsyncTimeoutMs = timeoutMs;
+            return appendEventAsyncResponse;
+        }
+
+        @Override
+        public Iterator<Event> getEvents(GetEventsRequest request, long timeoutMs) {
+            this.lastGetEventsRequest = request;
+            this.lastGetEventsTimeoutMs = timeoutMs;
+            return getEventsResponse;
+        }
+
+        @Override
+        public UpsertSchemaResponse upsertSchema(UpsertSchemaRequest request, long timeoutMs) {
+            this.lastUpsertSchemaRequest = request;
+            this.lastUpsertSchemaTimeoutMs = timeoutMs;
+            return upsertSchemaResponse;
+        }
+
+        @Override
+        public boolean saveSnapshot(SaveSnapshotRequest request, long timeoutMs) {
+            this.lastSaveSnapshotRequest = request;
+            this.lastSaveSnapshotTimeoutMs = timeoutMs;
+            return saveSnapshotResponse;
+        }
+
+        @Override
+        public Snapshot getSnapshot(GetSnapshotRequest request, long timeoutMs) {
+            this.lastGetSnapshotRequest = request;
+            this.lastGetSnapshotTimeoutMs = timeoutMs;
+            return getSnapshotResponse;
+        }
+    }
+
     @GraveyardEntity("test_entity")
     static class TestEntity {
         @GraveyardField(nullable = false)
         String name;
-        
+
         int age;
     }
 
@@ -210,7 +262,7 @@ class EventStoreClientTest {
     static class ConstrainedEntity {
         @GraveyardField(min = 0, max = 150)
         int age;
-        
+
         @GraveyardField(minLength = 3, regex = "^[a-z]+$")
         String username;
     }

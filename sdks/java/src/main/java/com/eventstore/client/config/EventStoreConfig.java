@@ -10,16 +10,40 @@ import org.springframework.context.annotation.Configuration;
 public class EventStoreConfig {
 
     @Value("${eventstore.host:localhost}")
-    private String host;
+    private String host = "localhost";
 
     @Value("${eventstore.port:50051}")
-    private int port;
+    private int port = 50051;
 
     @Value("${eventstore.use-tls:false}")
-    private boolean useTls;
+    private boolean useTls = false;
 
     @Value("${eventstore.timeout-ms:5000}")
-    private long timeoutMs;
+    private long timeoutMs = 5000L;
+
+    public String getHost() {
+        return host;
+    }
+
+    public void setHost(String host) {
+        this.host = host;
+    }
+
+    public int getPort() {
+        return port;
+    }
+
+    public void setPort(int port) {
+        this.port = port;
+    }
+
+    public boolean isUseTls() {
+        return useTls;
+    }
+
+    public void setUseTls(boolean useTls) {
+        this.useTls = useTls;
+    }
 
     public long getTimeoutMs() {
         return timeoutMs;
@@ -32,13 +56,13 @@ public class EventStoreConfig {
     @Bean
     public ManagedChannel eventStoreChannel() {
         ManagedChannelBuilder<?> builder = ManagedChannelBuilder.forAddress(host, port);
-        
+
         if (useTls) {
             builder.useTransportSecurity();
         } else {
             builder.usePlaintext();
         }
-        
+
         return builder.build();
     }
 }

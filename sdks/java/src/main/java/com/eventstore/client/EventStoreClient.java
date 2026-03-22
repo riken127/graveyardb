@@ -1,20 +1,24 @@
 package com.eventstore.client;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import com.eventstore.client.model.AppendEventRequest;
 import com.eventstore.client.model.AppendEventResponse;
 import com.eventstore.client.model.Event;
 import com.eventstore.client.model.EventStoreGrpc;
 import com.eventstore.client.model.GetEventsRequest;
+import com.eventstore.client.model.GetSnapshotRequest;
+import com.eventstore.client.model.SaveSnapshotRequest;
 import com.eventstore.client.model.UpsertSchemaRequest;
 import com.eventstore.client.model.UpsertSchemaResponse;
-import com.eventstore.client.schema.SchemaGenerator;
 import com.eventstore.client.annotations.GraveyardEntity;
 import com.eventstore.client.config.EventStoreConfig;
+import com.eventstore.client.schema.SchemaGenerator;
 import io.grpc.ManagedChannel;
 import org.springframework.stereotype.Service;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -30,9 +34,9 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class EventStoreClient {
+    public static final long ANY_VERSION = -1L;
 
-    private final EventStoreGrpc.EventStoreBlockingStub blockingStub;
-    private final EventStoreGrpc.EventStoreFutureStub futureStub;
+    private final EventStoreTransport transport;
     private final EventStoreConfig config;
 
     /**
@@ -42,21 +46,24 @@ public class EventStoreClient {
      * @param config  Configuration for timeouts and connection settings.
      */
     public EventStoreClient(ManagedChannel channel, EventStoreConfig config) {
-        this.config = config;
-        this.blockingStub = EventStoreGrpc.newBlockingStub(channel);
-        this.futureStub = EventStoreGrpc.newFutureStub(channel);
+        this(new GrpcEventStoreTransport(channel), config);
+    }
+
+    EventStoreClient(EventStoreTransport transport, EventStoreConfig config) {
+        this.transport = Objects.requireNonNull(transport, "transport");
+        this.config = Objects.requireNonNull(config, "config");
     }
 
     /**
      * Appends a batch of events to a stream without requesting optimistic concurrency checks.
-     * This is equivalent to calling {@link #appendEvent(String, List, long)} with {@code expectedVersion = -1}.
+     * This is equivalent to calling {@link #appendEvent(String, List, long)} with {@link #ANY_VERSION}.
      *
      * @param streamId The distinct ID of the stream (e.g., "order-123").
      * @param events   The list of {@link Event} objects to append.
      * @return {@code true} if the events were successfully appended; {@code false} otherwise.
      */
     public boolean appendEvent(String streamId, List<Event> events) {
-        return appendEvent(streamId, events, -1);
+        return appendEvent(streamId, events, ANY_VERSION);
     }
 
     /**
@@ -65,20 +72,20 @@ public class EventStoreClient {
      * @param streamId        The distinct ID of the stream.
      * @param events          The list of {@link Event} objects to append.
      * @param expectedVersion The expected version of the stream prior to this append.
-     *                        Use {@code -1} (or {@code 0} depending on server impl) to disable the check.
+     *                        Use {@link #ANY_VERSION} to disable the check, or a non-negative version to
+     *                        enforce optimistic concurrency control.
      *                        If the server's current version does not match, the append fails.
      * @return {@code true} if successful; {@code false} if a concurrency conflict or other error occurred.
      */
     public boolean appendEvent(String streamId, List<Event> events, long expectedVersion) {
+        long normalizedExpectedVersion = normalizeExpectedVersion(expectedVersion);
         AppendEventRequest request = AppendEventRequest.newBuilder()
                 .setStreamId(streamId)
                 .addAllEvents(events)
-                .setExpectedVersion(expectedVersion)
+                .setExpectedVersion(normalizedExpectedVersion)
                 .build();
-        
-        AppendEventResponse response = blockingStub
-                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS)
-                .appendEvent(request);
+
+        AppendEventResponse response = transport.appendEvent(request, config.getTimeoutMs());
         return response.getSuccess();
     }
 
@@ -87,19 +94,18 @@ public class EventStoreClient {
      *
      * @param streamId        The stream ID.
      * @param events          The events to append.
-     * @param expectedVersion The expected version for OCC.
-     * @return A {@link com.google.common.util.concurrent.ListenableFuture} representing the pending response.
+     * @param expectedVersion The expected version for OCC. Use {@link #ANY_VERSION} for "no check".
+     * @return A {@link ListenableFuture} representing the pending response.
      */
-    public com.google.common.util.concurrent.ListenableFuture<AppendEventResponse> appendEventAsync(String streamId, List<Event> events, long expectedVersion) {
+    public ListenableFuture<AppendEventResponse> appendEventAsync(String streamId, List<Event> events, long expectedVersion) {
+        long normalizedExpectedVersion = normalizeExpectedVersion(expectedVersion);
         AppendEventRequest request = AppendEventRequest.newBuilder()
                 .setStreamId(streamId)
                 .addAllEvents(events)
-                .setExpectedVersion(expectedVersion)
+                .setExpectedVersion(normalizedExpectedVersion)
                 .build();
-        
-        return futureStub
-                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS)
-                .appendEvent(request);
+
+        return transport.appendEventAsync(request, config.getTimeoutMs());
     }
 
     /**
@@ -115,10 +121,8 @@ public class EventStoreClient {
         GetEventsRequest request = GetEventsRequest.newBuilder()
                 .setStreamId(streamId)
                 .build();
-        
-        return blockingStub
-                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS)
-                .getEvents(request);
+
+        return transport.getEvents(request, config.getTimeoutMs());
     }
 
     /**
@@ -137,14 +141,12 @@ public class EventStoreClient {
         }
 
         com.eventstore.client.model.Schema schema = SchemaGenerator.generate(entityClass);
-        
+
         UpsertSchemaRequest request = UpsertSchemaRequest.newBuilder()
                 .setSchema(schema)
                 .build();
 
-        return blockingStub
-                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS)
-                .upsertSchema(request);
+        return transport.upsertSchema(request, config.getTimeoutMs());
     }
 
     /**
@@ -164,15 +166,11 @@ public class EventStoreClient {
                 .setTimestamp(timestamp)
                 .build();
 
-        com.eventstore.client.model.SaveSnapshotRequest request = com.eventstore.client.model.SaveSnapshotRequest.newBuilder()
+        SaveSnapshotRequest request = SaveSnapshotRequest.newBuilder()
                 .setSnapshot(snapshot)
                 .build();
 
-        com.eventstore.client.model.SaveSnapshotResponse response = blockingStub
-                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS)
-                .saveSnapshot(request);
-        
-        return response.getSuccess();
+        return transport.saveSnapshot(request, config.getTimeoutMs());
     }
 
     /**
@@ -182,18 +180,88 @@ public class EventStoreClient {
      * @return The {@link com.eventstore.client.model.Snapshot} if found, or {@code null} if no snapshot exists.
      */
     public com.eventstore.client.model.Snapshot getSnapshot(String streamId) {
-        com.eventstore.client.model.GetSnapshotRequest request = com.eventstore.client.model.GetSnapshotRequest.newBuilder()
+        GetSnapshotRequest request = GetSnapshotRequest.newBuilder()
                 .setStreamId(streamId)
                 .build();
 
-        com.eventstore.client.model.GetSnapshotResponse response = blockingStub
-                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS)
-                .getSnapshot(request);
-        
-        if (response.getFound()) {
-            return response.getSnapshot();
-        } else {
-            return null;
+        return transport.getSnapshot(request, config.getTimeoutMs());
+    }
+
+    private static long normalizeExpectedVersion(long expectedVersion) {
+        if (expectedVersion == ANY_VERSION || expectedVersion >= 0) {
+            return expectedVersion;
         }
+
+        throw new IllegalArgumentException(
+                "expectedVersion must be EventStoreClient.ANY_VERSION (-1) or a non-negative stream version");
+    }
+}
+
+interface EventStoreTransport {
+    AppendEventResponse appendEvent(AppendEventRequest request, long timeoutMs);
+
+    ListenableFuture<AppendEventResponse> appendEventAsync(AppendEventRequest request, long timeoutMs);
+
+    Iterator<Event> getEvents(GetEventsRequest request, long timeoutMs);
+
+    UpsertSchemaResponse upsertSchema(UpsertSchemaRequest request, long timeoutMs);
+
+    boolean saveSnapshot(SaveSnapshotRequest request, long timeoutMs);
+
+    com.eventstore.client.model.Snapshot getSnapshot(GetSnapshotRequest request, long timeoutMs);
+}
+
+final class GrpcEventStoreTransport implements EventStoreTransport {
+    private final EventStoreGrpc.EventStoreBlockingStub blockingStub;
+    private final EventStoreGrpc.EventStoreFutureStub futureStub;
+
+    GrpcEventStoreTransport(ManagedChannel channel) {
+        this.blockingStub = EventStoreGrpc.newBlockingStub(channel);
+        this.futureStub = EventStoreGrpc.newFutureStub(channel);
+    }
+
+    @Override
+    public AppendEventResponse appendEvent(AppendEventRequest request, long timeoutMs) {
+        return blockingStub
+                .withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS)
+                .appendEvent(request);
+    }
+
+    @Override
+    public ListenableFuture<AppendEventResponse> appendEventAsync(AppendEventRequest request, long timeoutMs) {
+        return futureStub
+                .withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS)
+                .appendEvent(request);
+    }
+
+    @Override
+    public Iterator<Event> getEvents(GetEventsRequest request, long timeoutMs) {
+        return blockingStub
+                .withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS)
+                .getEvents(request);
+    }
+
+    @Override
+    public UpsertSchemaResponse upsertSchema(UpsertSchemaRequest request, long timeoutMs) {
+        return blockingStub
+                .withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS)
+                .upsertSchema(request);
+    }
+
+    @Override
+    public boolean saveSnapshot(SaveSnapshotRequest request, long timeoutMs) {
+        return blockingStub
+                .withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS)
+                .saveSnapshot(request)
+                .getSuccess();
+    }
+
+    @Override
+    public com.eventstore.client.model.Snapshot getSnapshot(GetSnapshotRequest request, long timeoutMs) {
+        com.eventstore.client.model.GetSnapshotResponse response = blockingStub
+                .withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS)
+                .getSnapshot(request);
+
+        return response.getFound() ? response.getSnapshot() : null;
     }
 }
