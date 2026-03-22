@@ -1,6 +1,5 @@
-use uuid::Uuid;
-
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventId(pub Uuid);
@@ -34,19 +33,36 @@ impl Timestamp {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventPayload(pub Vec<u8>);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EventKind {
     Internal,
     Schematic,
     Transactional,
-    // Add External if it was used in other code, or fix usage. Error said 'External' not found.
-    // Let's add it if it's needed, or map it.
     External,
+    Custom(String),
+}
+
+impl EventKind {
+    pub fn from_type_name(value: &str) -> Self {
+        match value {
+            "Internal" => Self::Internal,
+            "Schematic" => Self::Schematic,
+            "Transactional" => Self::Transactional,
+            "External" => Self::External,
+            other => Self::Custom(other.to_string()),
+        }
+    }
 }
 
 impl std::fmt::Display for EventKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            Self::Internal => write!(f, "Internal"),
+            Self::Schematic => write!(f, "Schematic"),
+            Self::Transactional => write!(f, "Transactional"),
+            Self::External => write!(f, "External"),
+            Self::Custom(value) => write!(f, "{}", value),
+        }
     }
 }
 

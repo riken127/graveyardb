@@ -6,14 +6,8 @@ impl TryFrom<proto::Event> for Event {
     type Error = String;
 
     fn try_from(proto_event: proto::Event) -> Result<Self, Self::Error> {
-        // Parse event_type string to EventKind
-        // Assuming the proto string matches the Debug output of the enum variants
-        let event_type = match proto_event.event_type.as_str() {
-            "Internal" => EventKind::Internal,
-            "Schematic" => EventKind::Schematic,
-            "Transactional" => EventKind::Transactional,
-            _ => EventKind::Internal, // Default/Fallback to avoid failure on unknown types for now
-        };
+        // Preserve unknown/custom event type strings so schema lookups remain accurate.
+        let event_type = EventKind::from_type_name(&proto_event.event_type);
 
         use std::str::FromStr;
         Ok(Event {
@@ -30,10 +24,9 @@ impl TryFrom<proto::Event> for Event {
 
 impl From<Event> for proto::Event {
     fn from(domain_event: Event) -> Self {
-        let event_type_str = format!("{:?}", domain_event.event_type);
         proto::Event {
             id: domain_event.id.0.to_string(),
-            event_type: event_type_str,
+            event_type: domain_event.event_type.to_string(),
             payload: domain_event.payload.0,
             timestamp: domain_event.timestamp.0,
             metadata: domain_event.metadata,

@@ -117,7 +117,7 @@ impl EventStore for ScyllaStore {
         event.sequence_number = next_version; // Assign atomic version
 
         let id = event.id.0;
-        let event_type_str = format!("{:?}", event.event_type);
+        let event_type_str = event.event_type.to_string();
         let payload = event.payload.0;
         let timestamp = event.timestamp.0 as i64;
         let version = next_version as i64;
@@ -196,12 +196,8 @@ impl EventStore for ScyllaStore {
                 row.map_err(|e| EventStoreError::StorageError(e.to_string()))?;
 
             // Reconstruct Event
-            let event_type = match event_type_str.as_str() {
-                "Internal" => crate::domain::events::event_kind::EventKind::Internal,
-                "Schematic" => crate::domain::events::event_kind::EventKind::Schematic,
-                "Transactional" => crate::domain::events::event_kind::EventKind::Transactional,
-                _ => crate::domain::events::event_kind::EventKind::Internal, // Fallback
-            };
+            let event_type =
+                crate::domain::events::event_kind::EventKind::from_type_name(&event_type_str);
 
             events.push(Event {
                 id: crate::domain::events::event_kind::EventId(id),

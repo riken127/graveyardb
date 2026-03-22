@@ -560,6 +560,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "prost 0.14.1",
+ "regex",
  "rocksdb",
  "scylla",
  "serde",
