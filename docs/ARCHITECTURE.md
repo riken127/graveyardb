@@ -21,7 +21,7 @@ graph LR
 The application is divided into several logical modules:
 
 * API Layer (`src/grpc`): gRPC requests, proto/domain conversion, auth interception, and snapshot endpoints.
-* Pipeline Layer (`src/pipeline`): ownership routing, transition validation, sharded workers, and write serialization.
+* Pipeline Layer (`src/pipeline`): ownership routing, transition validation, schema enforcement, sharded workers, and write serialization.
 * Domain Layer (`src/domain`): core event and schema types, conversions, and validation.
 * Storage Layer (`src/storage`): event store and snapshot store implementations for RocksDB, ScyllaDB, and in-memory tests.
 
@@ -43,9 +43,9 @@ graph TD
 
 ### Append Event
 
-1. SDK sends `AppendEventRequest` with a stream ID, batch of events, expected version, and transition metadata on every event.
+1. SDK sends `AppendEventRequest` with a stream ID, events, expected version, and transition metadata on every event.
 2. API converts proto events into domain events and preserves the stream ID.
-3. Pipeline validates transition metadata and checks cluster ownership before it accepts the write.
+3. Pipeline validates transition metadata, enforces single-event append, and checks cluster ownership before it accepts the write.
 4. Worker shards serialize writes for the stream.
 5. Storage persists the event and advances the stream version.
 6. API returns success or a gRPC error to the SDK.
@@ -56,6 +56,18 @@ graph TD
 2. Pipeline validates the schema contract (type-safe constraints, coherent bounds, regex compilation, enum integrity).
 3. Invalid contracts are rejected as `INVALID_ARGUMENT`.
 4. Valid contracts are persisted through the configured storage backend.
+
+### Save Snapshot
+
+1. SDK sends `SaveSnapshotRequest`.
+2. API converts the snapshot and validates snapshot version against the current stream version and existing snapshot version.
+3. Valid snapshots are written to the local snapshot store.
+
+### Get Snapshot
+
+1. SDK sends `GetSnapshotRequest`.
+2. API reads the latest snapshot from the snapshot store.
+3. The response returns `found=false` when no snapshot exists.
 
 Example append payload:
 
@@ -104,4 +116,6 @@ sequenceDiagram
 * TLS is optional and configured at startup when certificate paths are provided.
 * Token-based auth is enforced through a gRPC interceptor when an auth token is configured.
 * Cluster ownership is static and derived from `CLUSTER_NODES`; it is not a live membership protocol yet.
-* Snapshot RPCs bypass the append pipeline and go directly to the snapshot store.
+* Snapshot RPCs bypass the append pipeline and go directly to the local snapshot store.
+* `REQUEST_TIMEOUT_MS` is used for inter-node forwarding call deadlines.
+* Multi-event append requests are rejected; appends are single-event only.

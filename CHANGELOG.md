@@ -6,6 +6,7 @@ All notable changes to GraveyardDB will be documented here.
 
 ### Added
 
+* Major documentation overhaul covering quickstart, production runbook, configuration reference, API behavior guarantees and limitations, security model, backups/recovery, upgrade flow, and SDK support matrix.
 * Release workflow now publishes versioned container images to GHCR for every `v*` tag.
 
 ### Changed

@@ -1,6 +1,6 @@
 # Future Work & Roadmap
 
-GraveyardDB currently exposes the core event-store path, but it is still being hardened for production use. This file is the real backlog, not a completion claim.
+GraveyardDB currently exposes the core event-store path, and the operational docs now cover the production runbook, configuration, security, backups, and release flow. This file remains the real product backlog, not a completion claim.
 
 ## Current Surface
 
@@ -10,6 +10,7 @@ GraveyardDB currently exposes the core event-store path, but it is still being h
 * Hybrid RocksDB and ScyllaDB storage.
 * Deterministic cluster forwarding with a static node list.
 * Go, Java, and TypeScript SDKs.
+* Production documentation for operators and users.
 
 ## Recently Completed (v0.2.0 Track)
 

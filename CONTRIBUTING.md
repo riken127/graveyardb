@@ -9,6 +9,7 @@ Thank you for contributing to GraveyardDB.
 * Include a short commit body when the change needs context.
 * Keep the repository clean. `git status --short` should be empty before you commit and after you finish a task.
 * Do not commit generated outputs such as `target/`, `sdks/java/target/`, `sdks/typescript/dist/`, `sdks/typescript/node_modules/`, or local RocksDB files in `data/rocksdb/`.
+* When you change runtime behavior, update the matching docs in the same patch so the README, docs index, and behavior pages stay aligned.
 
 ## Getting Started
 
@@ -23,6 +24,7 @@ Thank you for contributing to GraveyardDB.
    * `cd sdks/go && go test ./...`
    * `cd sdks/typescript && npm test -- --runInBand`
    * `cd sdks/java && mvn -q test` when a backend is available for the integration test
+   * For docs-only changes, at minimum verify markdown links and code blocks still reflect current behavior.
 
 ## Release Flow
 
@@ -36,6 +38,7 @@ Thank you for contributing to GraveyardDB.
 2. Run the relevant checks.
 3. Verify no generated artifacts are staged.
 4. Open the PR or, if you are working directly on `main`, commit with a clear conventional-commit message and description.
+5. If the change touched deployment, security, or API behavior, confirm the relevant docs pages were updated in the same patch.
 
 ## Note on Shared Work
 

@@ -2,34 +2,17 @@
 
 GraveyardDB is a distributed event store with ScyllaDB-backed primary storage, RocksDB fallback, gRPC APIs, sharded workers, schema support, mandatory transition metadata, snapshots, and language clients.
 
-The core lifecycle is `event -> transition -> snapshot`. Every append must include transition metadata on each event, or the server rejects the write.
+The core contract is `event -> transition -> snapshot`. Every append must include transition metadata on each event. Snapshots are saved and fetched explicitly; they are not auto-generated from appends.
 
-## Current Status
+## Quickstart
 
-* The core Rust service handles append/read operations, schema management, transition validation, snapshots, TLS, and token-based auth hooks.
-* Schema contract validation now runs at registration time and rejects invalid constraint combinations before schemas are stored.
-* Payload validation supports primitives, enums, arrays, nested sub-schemas, numeric bounds, string/array length bounds, and regex checks.
-* Cluster ownership is deterministic and based on the configured node list.
-* Go, Java, and TypeScript SDKs exist under `sdks/`, but each should be validated against the release checklist before production use.
-* Historical benchmark notes live in [BENCHMARKS.md](./BENCHMARKS.md); they are local-development measurements, not SLAs.
+Start with [docs/QUICKSTART.md](./docs/QUICKSTART.md) for a runnable local setup.
 
-## Getting Started
-
-### Prerequisites
-
-* Rust stable
-* Protocol Buffers compiler (`protoc`)
-* Docker and Docker Compose for local cluster or ScyllaDB setups
-
-### Run Locally
-
-For RocksDB-only mode:
+Minimal examples:
 
 ```bash
 SCYLLA_KEYSPACE=graveyard cargo run --release
 ```
-
-For ScyllaDB-backed mode:
 
 ```bash
 SCYLLA_URI=127.0.0.1:9042 \
@@ -40,17 +23,41 @@ PORT=50051 \
 cargo run --release
 ```
 
-Optional environment variables:
-`REQUEST_TIMEOUT_MS`, `AUTH_TOKEN`, `TLS_CERT_PATH`, `TLS_KEY_PATH`, `DB_PATH`,
-`SCHEMA_VALIDATION_HARD_FAIL`, `REQUIRE_TLS`, `REQUIRE_AUTH`, `OTEL_ENABLED`, `OTEL_FAIL_FAST`
+`SCYLLA_KEYSPACE` is required even in RocksDB-only mode.
 
-### Local Cluster
+## Production Docs
 
-```bash
-docker-compose up -d
-```
+* Production runbook: [docs/PRODUCTION_RUNBOOK.md](./docs/PRODUCTION_RUNBOOK.md)
+* Configuration reference: [docs/CONFIGURATION_REFERENCE.md](./docs/CONFIGURATION_REFERENCE.md)
+* API behavior and limits: [docs/API_BEHAVIOR.md](./docs/API_BEHAVIOR.md)
+* Security model: [docs/SECURITY_MODEL.md](./docs/SECURITY_MODEL.md)
+* Backups and recovery: [docs/BACKUPS_RECOVERY.md](./docs/BACKUPS_RECOVERY.md)
+* Upgrade and release flow: [docs/UPGRADE_RELEASE_FLOW.md](./docs/UPGRADE_RELEASE_FLOW.md)
+* SDK matrix: [docs/SDK_MATRIX.md](./docs/SDK_MATRIX.md)
+* Architecture: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+* Scope: [docs/SCOPE.md](./docs/SCOPE.md)
 
-Then point the server at the local ScyllaDB endpoint and the node list you want to use.
+## Current Behavior
+
+* Append requests reject missing or empty transition metadata, invalid UUID event IDs, and unsupported `expected_version` values below `-1`.
+* Append requests currently support exactly one event; multi-event batches are rejected.
+* Schema validation is enforced only for event types with registered schemas; with hard-fail disabled, validation failures are logged and the append still proceeds.
+* Stream ownership is deterministic and based on the sorted `CLUSTER_NODES` list; membership is static, not dynamically discovered.
+* `REQUEST_TIMEOUT_MS` sets the timeout for inter-node forwarding calls; it does not cap local storage execution time.
+* Snapshots live in a separate local RocksDB database at `${DB_PATH}_snapshots`, even when event storage is backed by ScyllaDB.
+
+## SDKs
+
+* Go: append/read/schema/snapshots, bearer auth, TLS, client timeouts, `ExpectedVersionAny`.
+* Java: append/read/schema/snapshots, async append, bearer auth, TLS, client timeouts, `ANY_VERSION`.
+* TypeScript: append/read/schema/snapshots, bearer auth, TLS, client timeouts, `ANY_VERSION`.
+* Validate all SDKs against [CONTRIBUTING.md](./CONTRIBUTING.md) and [RELEASE.md](./RELEASE.md) before treating a release as production-ready.
+
+## Release and Contribution
+
+* Release process: [RELEASE.md](./RELEASE.md)
+* Changelog: [CHANGELOG.md](./CHANGELOG.md)
+* Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## Container Images
 
@@ -68,15 +75,3 @@ docker run --rm -p 50051:50051 \
   -e SCYLLA_KEYSPACE=graveyard \
   ghcr.io/<owner>/<repo>:vX.Y.Z
 ```
-
-## Release and Contribution
-
-* Release process: [RELEASE.md](./RELEASE.md)
-* Changelog: [CHANGELOG.md](./CHANGELOG.md)
-* Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md)
-
-## SDKs
-
-* Go: [sdks/go/README.md](./sdks/go/README.md)
-* Java: [sdks/java/README.md](./sdks/java/README.md)
-* TypeScript: [sdks/typescript/README.md](./sdks/typescript/README.md)
