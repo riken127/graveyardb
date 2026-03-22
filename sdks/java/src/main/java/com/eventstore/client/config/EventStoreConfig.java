@@ -24,9 +24,17 @@ public class EventStoreConfig {
     @Value("${eventstore.use-tls:false}")
     private boolean useTls = false;
 
+    /**
+     * Bearer token attached to outgoing requests when set.
+     * Leave blank for unauthenticated local development.
+     */
     @Value("${eventstore.auth-token:}")
     private String authToken = "";
 
+    /**
+     * Default per-RPC timeout in milliseconds.
+     * A finite timeout is recommended for all production deployments.
+     */
     @Value("${eventstore.timeout-ms:5000}")
     private long timeoutMs = 5000L;
 
@@ -81,6 +89,7 @@ public class EventStoreConfig {
         if (useTls) {
             builder.useTransportSecurity();
         } else {
+            // Plaintext is intended for local development only.
             builder.usePlaintext();
         }
 

@@ -31,9 +31,9 @@ Configure the client in your `application.properties` or `application.yml`:
 |----------|---------|-------------|
 | `eventstore.host` | `localhost` | Hostname of the EventStore server. |
 | `eventstore.port` | `50051` | gRPC port. |
-| `eventstore.use-tls` | `false` | Set `true` to use TLS with the JVM trust store. |
-| `eventstore.auth-token` | empty | Optional bearer token sent as `authorization: Bearer <token>`. |
-| `eventstore.timeout-ms` | `5000` | Timeout for requests in milliseconds. |
+| `eventstore.use-tls` | `false` | Plaintext for local development; set `true` for production TLS with the JVM trust store. |
+| `eventstore.auth-token` | empty | Optional bearer token sent as `authorization: Bearer <token>` on outgoing requests. |
+| `eventstore.timeout-ms` | `5000` | Default per-RPC timeout in milliseconds. |
 
 The SDK also exposes the same defaults as a plain Java object via `EventStoreConfig`, so you can use it outside Spring if you prefer.
 
@@ -73,6 +73,14 @@ Register the schema:
 
 ```java
 client.upsertSchema(UserProfile.class);
+```
+
+Lookup a schema or snapshot when you need read-side parity with the service:
+
+```java
+GetSchemaResponse schemaResponse = client.getSchema("user_profile");
+Snapshot snapshot = client.getSnapshot("user-123");
+boolean saved = client.saveSnapshot("user-123", 42L, new byte[0], System.currentTimeMillis());
 ```
 
 ### Append Sync
@@ -153,4 +161,4 @@ eventstore.timeout-ms=2000
 Use `@GraveyardField` constraints to describe schema metadata. The Java SDK includes a client-side `SchemaValidator` helper for preflight checks, but backend enforcement remains the source of truth. Non-nullable fields are exported as `required=true` in the generated schema so the schema model and annotations stay aligned. Regex validation is currently best treated as client-side validation unless your backend version explicitly enforces it.
 
 ### TLS and Auth
-`eventstore.use-tls=true` enables gRPC transport security with the JVM's configured trust store. If you need a custom CA bundle or a more specialized auth flow, build and pass your own `ManagedChannel` to `EventStoreClient` instead of relying on the Spring-configured channel bean.
+`eventstore.use-tls=true` enables gRPC transport security with the JVM's configured trust store. The default is plaintext for local development only. If you need a custom CA bundle or a more specialized auth flow, build and pass your own `ManagedChannel` to `EventStoreClient` instead of relying on the Spring-configured channel bean.

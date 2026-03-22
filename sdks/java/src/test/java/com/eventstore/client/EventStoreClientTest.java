@@ -7,6 +7,8 @@ import com.eventstore.client.model.AppendEventRequest;
 import com.eventstore.client.model.AppendEventResponse;
 import com.eventstore.client.model.Event;
 import com.eventstore.client.model.GetEventsRequest;
+import com.eventstore.client.model.GetSchemaRequest;
+import com.eventstore.client.model.GetSchemaResponse;
 import com.eventstore.client.model.GetSnapshotRequest;
 import com.eventstore.client.model.SaveSnapshotRequest;
 import com.eventstore.client.model.Snapshot;
@@ -101,6 +103,21 @@ class EventStoreClientTest {
         assertNotNull(transport.lastGetEventsRequest);
         assertEquals(streamId, transport.lastGetEventsRequest.getStreamId());
         assertEquals(5000L, transport.lastGetEventsTimeoutMs);
+    }
+
+    @Test
+    void getSchema_Success() {
+        transport.getSchemaResponse = GetSchemaResponse.newBuilder()
+                .setFound(true)
+                .setSchema(com.eventstore.client.model.Schema.newBuilder().setName("user").build())
+                .build();
+
+        GetSchemaResponse result = eventStoreClient.getSchema("user");
+
+        assertTrue(result.getFound());
+        assertNotNull(transport.lastGetSchemaRequest);
+        assertEquals("user", transport.lastGetSchemaRequest.getName());
+        assertEquals(5000L, transport.lastGetSchemaTimeoutMs);
     }
 
     @Test
@@ -255,6 +272,10 @@ class EventStoreClientTest {
         private long lastGetEventsTimeoutMs;
         private Iterator<Event> getEventsResponse = Collections.emptyIterator();
 
+        private GetSchemaRequest lastGetSchemaRequest;
+        private long lastGetSchemaTimeoutMs;
+        private GetSchemaResponse getSchemaResponse = GetSchemaResponse.newBuilder().setFound(false).build();
+
         private UpsertSchemaRequest lastUpsertSchemaRequest;
         private long lastUpsertSchemaTimeoutMs;
         private UpsertSchemaResponse upsertSchemaResponse = UpsertSchemaResponse.newBuilder().setSuccess(true).build();
@@ -286,6 +307,13 @@ class EventStoreClientTest {
             this.lastGetEventsRequest = request;
             this.lastGetEventsTimeoutMs = timeoutMs;
             return getEventsResponse;
+        }
+
+        @Override
+        public GetSchemaResponse getSchema(GetSchemaRequest request, long timeoutMs) {
+            this.lastGetSchemaRequest = request;
+            this.lastGetSchemaTimeoutMs = timeoutMs;
+            return getSchemaResponse;
         }
 
         @Override

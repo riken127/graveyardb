@@ -212,3 +212,40 @@ func (c *Client) GetSchema(ctx context.Context, name string) (*pb.GetSchemaRespo
 	}
 	return c.client.GetSchema(ctx, req)
 }
+
+// SaveSnapshot persists a stream snapshot.
+func (c *Client) SaveSnapshot(ctx context.Context, snapshot *pb.Snapshot) (bool, error) {
+	ctx, cancel := c.unaryContext(ctx)
+	defer cancel()
+
+	req := &pb.SaveSnapshotRequest{
+		Snapshot: snapshot,
+	}
+
+	resp, err := c.client.SaveSnapshot(ctx, req)
+	if err != nil {
+		return false, err
+	}
+
+	return resp.GetSuccess(), nil
+}
+
+// GetSnapshot retrieves the latest snapshot for a stream.
+func (c *Client) GetSnapshot(ctx context.Context, streamID string) (*pb.Snapshot, error) {
+	ctx, cancel := c.unaryContext(ctx)
+	defer cancel()
+
+	req := &pb.GetSnapshotRequest{
+		StreamId: streamID,
+	}
+
+	resp, err := c.client.GetSnapshot(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.GetFound() {
+		return nil, nil
+	}
+
+	return resp.GetSnapshot(), nil
+}

@@ -6,6 +6,7 @@ Go client library for `graveyar_db` using gRPC.
 
 - `DefaultConfig()` with sensible defaults for local development.
 - `ExpectedVersionAny` for appends that should skip optimistic concurrency checks.
+- Schema lookup plus snapshot save/read helpers for proto parity.
 - Bearer token propagation via `Config.AuthToken`.
 - Struct-to-schema generation with `json` field renaming and `graveyard` constraints.
 - TLS and per-request timeout support.
@@ -77,6 +78,10 @@ Use `client.ExpectedVersionAny` when you want the server to accept the append wi
 Only `-1` and non-negative versions are valid; the client rejects smaller values before the RPC is sent.
 Each event must also include a non-empty `transition` with `name`, `from_state`, and `to_state`, and `from_state` must differ from `to_state`.
 
+The client defaults to plaintext gRPC for local development. Set `Config.UseTLS`
+to `true` for production, and provide `Config.AuthToken` and a finite timeout so
+requests fail fast instead of hanging indefinitely.
+
 ### Generate and Register a Schema
 
 ```go
@@ -94,6 +99,33 @@ _, err = c.UpsertSchema(ctx, schema)
 if err != nil {
 	log.Fatal(err)
 }
+```
+
+### Lookup Schemas and Snapshots
+
+```go
+schemaResp, err := c.GetSchema(ctx, "user")
+if err != nil {
+	log.Fatal(err)
+}
+
+saved, err := c.SaveSnapshot(ctx, &pb.Snapshot{
+	StreamId:  "user-123",
+	Version:   42,
+	Payload:   []byte(`{"name":"Ada"}`),
+	Timestamp: uint64(time.Now().UnixMilli()),
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+snapshot, err := c.GetSnapshot(ctx, "user-123")
+if err != nil {
+	log.Fatal(err)
+}
+_ = schemaResp
+_ = saved
+_ = snapshot
 ```
 
 ### Read Events
@@ -121,6 +153,7 @@ for {
 ## Notes
 
 - `Config.Timeout` applies to unary RPCs.
+- `Config.Timeout` is the default per-RPC deadline; existing context deadlines still win.
 - `Config.AuthToken` is sent as `authorization: Bearer <token>` on outgoing unary and streaming gRPC requests.
 - `Config.TLSCertFile` should point at a CA bundle used to verify the server certificate; when it is empty, Go's system root store is used.
 - The generated schema uses exported Go field names unless you provide a `json` tag. `json:"-"` omits a field from the schema entirely.

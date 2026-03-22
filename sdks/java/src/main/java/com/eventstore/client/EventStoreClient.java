@@ -6,6 +6,8 @@ import com.eventstore.client.model.AppendEventResponse;
 import com.eventstore.client.model.Event;
 import com.eventstore.client.model.EventStoreGrpc;
 import com.eventstore.client.model.GetEventsRequest;
+import com.eventstore.client.model.GetSchemaRequest;
+import com.eventstore.client.model.GetSchemaResponse;
 import com.eventstore.client.model.GetSnapshotRequest;
 import com.eventstore.client.model.SaveSnapshotRequest;
 import com.eventstore.client.model.Transition;
@@ -130,6 +132,20 @@ public class EventStoreClient {
     }
 
     /**
+     * Retrieves a schema definition by name.
+     *
+     * @param name The schema name.
+     * @return The schema response from the server, including whether it was found.
+     */
+    public GetSchemaResponse getSchema(String name) {
+        GetSchemaRequest request = GetSchemaRequest.newBuilder()
+                .setName(name)
+                .build();
+
+        return transport.getSchema(request, config.getTimeoutMs());
+    }
+
+    /**
      * Registers or updates a schema for the domain entity.
      * <p>
      * The provided class must be annotated with {@link GraveyardEntity}.
@@ -243,6 +259,8 @@ interface EventStoreTransport {
 
     Iterator<Event> getEvents(GetEventsRequest request, long timeoutMs);
 
+    GetSchemaResponse getSchema(GetSchemaRequest request, long timeoutMs);
+
     UpsertSchemaResponse upsertSchema(UpsertSchemaRequest request, long timeoutMs);
 
     boolean saveSnapshot(SaveSnapshotRequest request, long timeoutMs);
@@ -278,6 +296,13 @@ final class GrpcEventStoreTransport implements EventStoreTransport {
         return blockingStub
                 .withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS)
                 .getEvents(request);
+    }
+
+    @Override
+    public GetSchemaResponse getSchema(GetSchemaRequest request, long timeoutMs) {
+        return blockingStub
+                .withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS)
+                .getSchema(request);
     }
 
     @Override

@@ -1,6 +1,11 @@
 export interface EventStoreConfig {
     host: string;
     port: number;
+    /**
+     * Enable TLS for production deployments.
+     *
+     * When false, the client uses plaintext gRPC for local development only.
+     */
     useTls: boolean;
     /**
      * Optional CA bundle for TLS connections.
@@ -10,7 +15,16 @@ export interface EventStoreConfig {
      * store.
      */
     tlsCaFile?: string;
+    /**
+     * Default per-request timeout in milliseconds.
+     *
+     * This applies when the caller does not supply a shorter deadline.
+     */
     timeoutMs: number;
+    /**
+     * Optional bearer token added to unary and streaming calls via the
+     * authorization header.
+     */
     authToken?: string;
 }
 

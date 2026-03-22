@@ -2,7 +2,21 @@ import * as grpc from '@grpc/grpc-js';
 import { readFileSync } from 'fs';
 import { EventStoreClient as GrpcClient } from './proto/eventstore';
 import { EventStoreConfig, defaultConfig } from './config';
-import { Event, AppendEventRequest, GetEventsRequest, UpsertSchemaRequest, UpsertSchemaResponse, AppendEventResponse, Transition } from './proto/eventstore';
+import {
+    AppendEventRequest,
+    AppendEventResponse,
+    Event,
+    GetEventsRequest,
+    GetSchemaRequest,
+    GetSchemaResponse,
+    GetSnapshotRequest,
+    GetSnapshotResponse,
+    SaveSnapshotRequest,
+    Snapshot,
+    Transition,
+    UpsertSchemaRequest,
+    UpsertSchemaResponse
+} from './proto/eventstore';
 import { SchemaGenerator } from './schema/generator';
 
 /**
@@ -28,6 +42,11 @@ export function normalizeExpectedVersion(expectedVersion: number): number {
 
     return expectedVersion;
 }
+
+type GrpcClientLike = Pick<
+    GrpcClient,
+    'appendEvent' | 'getEvents' | 'upsertSchema' | 'getSchema' | 'saveSnapshot' | 'getSnapshot' | 'close'
+>;
 
 function validateTransitionText(value: unknown, fieldName: string, eventIndex: number): string {
     if (typeof value !== 'string' || value.trim().length === 0) {
@@ -68,11 +87,16 @@ function validateAppendEvents(events: Event[]): void {
 }
 
 export class EventStoreClient {
-    private client: GrpcClient;
+    private client: GrpcClientLike;
     private config: EventStoreConfig;
 
-    constructor(config: Partial<EventStoreConfig> = {}) {
+    constructor(config: Partial<EventStoreConfig> = {}, client?: GrpcClientLike) {
         this.config = { ...defaultConfig, ...config };
+
+        if (client) {
+            this.client = client;
+            return;
+        }
 
         const address = `${this.config.host}:${this.config.port}`;
         const credentials = this.createCredentials();
@@ -163,6 +187,52 @@ export class EventStoreClient {
                 if (err) return reject(err);
                 if (!response) return reject(new Error('No response received'));
                 resolve(response);
+            });
+        });
+    }
+
+    async getSchema(name: string): Promise<GetSchemaResponse> {
+        const req: GetSchemaRequest = { name };
+
+        return new Promise((resolve, reject) => {
+            const metadata = this.buildMetadata();
+            this.client.getSchema(req, metadata, { deadline: this.getDeadline() }, (err, response) => {
+                if (err) return reject(err);
+                if (!response) return reject(new Error('No response received'));
+                resolve(response);
+            });
+        });
+    }
+
+    async saveSnapshot(streamId: string, version: number, payload: Buffer, timestamp: number): Promise<boolean> {
+        const req: SaveSnapshotRequest = {
+            snapshot: {
+                streamId,
+                version,
+                payload,
+                timestamp
+            }
+        };
+
+        return new Promise((resolve, reject) => {
+            const metadata = this.buildMetadata();
+            this.client.saveSnapshot(req, metadata, { deadline: this.getDeadline() }, (err, response) => {
+                if (err) return reject(err);
+                if (!response) return reject(new Error('No response received'));
+                resolve(response.success);
+            });
+        });
+    }
+
+    async getSnapshot(streamId: string): Promise<Snapshot | undefined> {
+        const req: GetSnapshotRequest = { streamId };
+
+        return new Promise((resolve, reject) => {
+            const metadata = this.buildMetadata();
+            this.client.getSnapshot(req, metadata, { deadline: this.getDeadline() }, (err, response) => {
+                if (err) return reject(err);
+                if (!response) return reject(new Error('No response received'));
+                resolve(response.found ? response.snapshot : undefined);
             });
         });
     }

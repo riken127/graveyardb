@@ -14,8 +14,9 @@ This document outlines the standard architecture, patterns, and performance requ
 2.  **Client Wrapper**: A high-level, idiomatic wrapper (e.g., Java Class, Go Struct).
     - **Responsibility**: Hides gRPC channels, implements timeouts, manages connection lifecycle.
 3.  **Configuration**: Environment-aware configuration (Dev vs Prod).
-    - **TLS**: Must support secure connections for Production.
-    - **Timeouts**: Must be configurable.
+    - **TLS**: Must support secure connections for Production. Plaintext defaults are acceptable only for local development and must be called out explicitly.
+    - **Timeouts**: Must be configurable and should default to a finite per-RPC deadline.
+    - **Auth**: Bearer-token or equivalent metadata-based auth should be plumbed through the wrapper when supported by the backend.
 4.  **Entity/Schema Layer (ODM)**:
     - Reflection/Metaprogramming to map Language Objects to Proto Schemas.
     - Automatic Schema Registration via `UpsertSchema`.
@@ -38,6 +39,7 @@ To achieve low latency and high throughput:
 ## 3. Production Readiness Checklist
 
 - [ ] **Optimistic Concurrency**: Must support `expected_version`.
+- [ ] **Secure Transport**: Production configs must make TLS enablement obvious and document trust-store/CA behavior.
 - [ ] **Schema Constraints**: Must validate data integrity using Proto constraints (Min/Max/Regex).
 - [ ] **Resilience**: Retries (with backoff), Timeouts, and Circuit Breakers (optional but recommended).
 - [ ] **Observability**: Expose metrics (request count, latency) and structured logs.
@@ -50,6 +52,8 @@ To achieve low latency and high throughput:
 4.  **Config**: Implement `EventStoreConfig` (TLS/Timeout).
 5.  **ODM**: Implement Annotations and Schema Generator.
 6.  **Verify**: Strong Unit Tests with Mocking.
+
+When documenting configuration, be explicit about the default transport mode. If an SDK defaults to plaintext for developer convenience, say so directly and show the production override that enables TLS, timeout controls, and auth metadata.
 
 ## 5. Schema & Entity Standard
 
