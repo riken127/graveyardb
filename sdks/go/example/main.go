@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/riken127/graveyar_db/sdks/go/client"
@@ -13,6 +14,7 @@ import (
 func main() {
 	cfg := client.DefaultConfig()
 	cfg.Address = "localhost:50051"
+	cfg.AuthToken = os.Getenv("EVENTSTORE_AUTH_TOKEN")
 
 	c, err := client.NewClient(cfg)
 	if err != nil {
@@ -29,11 +31,11 @@ func main() {
 			Id:        "123",
 			EventType: "TestEvent",
 			Payload:   []byte("Hello Go SDK"),
-			Timestamp: uint64(time.Now().Unix()),
+			Timestamp: uint64(time.Now().UnixMilli()),
 		},
 	}
 
-	success, err := c.AppendEvent(ctx, "test-stream", events, -1)
+	success, err := c.AppendEvent(ctx, "test-stream", events, client.ExpectedVersionAny)
 	if err != nil {
 		log.Printf("Append failed: %v", err)
 	} else {
@@ -42,7 +44,7 @@ func main() {
 
 	// Schema Example
 	type User struct {
-		Name   string `json:"full_name"`
+		Name   string `json:"full_name" graveyard:"required"`
 		Age    int    `graveyard:"min=18"`
 		Active bool
 	}

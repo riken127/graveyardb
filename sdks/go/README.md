@@ -1,54 +1,118 @@
 # EventStore Go SDK
 
-Go Client library for `graveyar_db` using gRPC.
+Go client library for `graveyar_db` using gRPC.
 
 ## Features
 
-- **Protocol**: gRPC with Protobuf.
-- **Concurrency**: Optimistic Cocurrency Control via `ExpectedVersion`.
-- **Schema**: Struct-tag based schema generation (`graveyard:"min=5"`).
-- **Transport**: Configurable TLS and timeouts.
+- `DefaultConfig()` with sensible defaults for local development.
+- `ExpectedVersionAny` for appends that should skip optimistic concurrency checks.
+- Bearer token propagation via `Config.AuthToken`.
+- Struct-to-schema generation with `json` field renaming and `graveyard` constraints.
+- TLS and per-request timeout support.
 
 ## Installation
 
 ```bash
-go get github.com/riken127/graveyardB/sdks/go
+go get github.com/riken127/graveyar_db/sdks/go
 ```
 
 ## Usage
 
+The snippets below assume these imports and a request context:
+
+```go
+import (
+	"context"
+	"io"
+	"log"
+	"os"
+	"time"
+
+	"github.com/riken127/graveyar_db/sdks/go/client"
+	pb "github.com/riken127/graveyar_db/sdks/go/proto"
+)
+
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+```
+
 ### Client Setup
 
 ```go
-cfg := client.NewDefaultConfig()
+cfg := client.DefaultConfig()
 cfg.Address = "localhost:50051"
+cfg.AuthToken = os.Getenv("EVENTSTORE_AUTH_TOKEN")
 
 c, err := client.NewClient(cfg)
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 defer c.Close()
 ```
 
-### Schema Registration
+### Append Events
+
+```go
+events := []*pb.Event{
+	{
+		Id:        "123",
+		EventType: "UserCreated",
+		Payload:   []byte(`{"name":"Ada"}`),
+		Timestamp: uint64(time.Now().UnixMilli()),
+	},
+}
+
+success, err := c.AppendEvent(ctx, "user-123", events, client.ExpectedVersionAny)
+if err != nil {
+	log.Fatal(err)
+}
+```
+
+Use `client.ExpectedVersionAny` when you want the server to accept the append without checking the current stream version. Pass an explicit version when you want optimistic concurrency control.
+
+### Generate and Register a Schema
 
 ```go
 type User struct {
-    Username string `graveyard:"min_len=3"`
-    Age      int    `graveyard:"min=18"`
+	Name string `json:"full_name" graveyard:"required,min_length=3"`
+	Age  int    `graveyard:"min=18"`
 }
 
-err := c.UpsertSchema("user", User{})
+schema, err := client.GenerateSchema(User{})
+if err != nil {
+	log.Fatal(err)
+}
+
+_, err = c.UpsertSchema(ctx, schema)
+if err != nil {
+	log.Fatal(err)
+}
 ```
 
-### Append & Read
+### Read Events
+
+`GetEvents` returns a streaming gRPC client. Read with `Recv()` until `io.EOF`.
 
 ```go
-events := []*Event{...}
-success, err := c.AppendEvent("stream-1", events, -1)
+stream, err := c.GetEvents(ctx, "user-123")
+if err != nil {
+	log.Fatal(err)
+}
 
-iter, err := c.GetEvents("stream-1")
-for iter.Next() {
-    log.Println(iter.Event())
+for {
+	event, err := stream.Recv()
+	if err == io.EOF {
+		break
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("event %s", event.GetId())
 }
 ```
+
+## Notes
+
+- `Config.Timeout` applies to unary RPCs.
+- `Config.AuthToken` is sent as `authorization: Bearer <token>` on outgoing gRPC requests.
+- The generated schema uses exported Go field names unless you provide a `json` tag.

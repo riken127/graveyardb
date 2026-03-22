@@ -17,6 +17,9 @@ type Config struct {
 	// TLSCertFile is the path to the CA certificate file for verifying the server's certificate.
 	// If empty and UseTLS is true, the system's root CAs will be used.
 	TLSCertFile string
+
+	// AuthToken is sent as a Bearer token on outgoing gRPC requests when set.
+	AuthToken string
 }
 
 // DefaultConfig returns a default configuration with:
@@ -29,4 +32,9 @@ func DefaultConfig() Config {
 		Timeout: 5 * time.Second,
 		UseTLS:  false,
 	}
+}
+
+// NewDefaultConfig is kept for backwards-compatible docs and examples.
+func NewDefaultConfig() Config {
+	return DefaultConfig()
 }

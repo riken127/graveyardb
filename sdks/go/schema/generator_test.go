@@ -1,9 +1,9 @@
 package schema
 
 import (
-	"testing"
 	"encoding/json"
-	
+	"testing"
+
 	pb "github.com/riken127/graveyar_db/sdks/go/proto"
 )
 
@@ -18,6 +18,11 @@ type ValidationStruct struct {
 type AddressStruct struct {
 	Street string
 	City   string
+}
+
+type TaggedStruct struct {
+	Username string `json:"username" graveyard:"min_length=3,max_length=12,regex=^[a-z]+$,required"`
+	Age      *int   `graveyard:"min=18,max=150,nullable=true"`
 }
 
 func TestGenerate(t *testing.T) {
@@ -72,8 +77,52 @@ func TestGenerate(t *testing.T) {
 			}
 		}
 	}
-	
+
 	// Debug print
 	b, _ := json.MarshalIndent(schema, "", "  ")
 	t.Logf("Generated Schema: %s", string(b))
+}
+
+func TestGenerateParsesGraveyardTags(t *testing.T) {
+	schema, err := Generate(TaggedStruct{})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	username := schema.Fields["username"]
+	if username == nil {
+		t.Fatalf("missing username field")
+	}
+	if username.Nullable {
+		t.Fatalf("username should be required by default")
+	}
+	if username.Constraints == nil || !username.Constraints.Required {
+		t.Fatalf("username should be required")
+	}
+	if got := username.Constraints.MinLength; got == nil || *got != 3 {
+		t.Fatalf("expected min_length=3, got %v", got)
+	}
+	if got := username.Constraints.MaxLength; got == nil || *got != 12 {
+		t.Fatalf("expected max_length=12, got %v", got)
+	}
+	if got := username.Constraints.Regex; got == nil || *got != "^[a-z]+$" {
+		t.Fatalf("expected regex to be parsed, got %v", got)
+	}
+
+	age := schema.Fields["Age"]
+	if age == nil {
+		t.Fatalf("missing Age field")
+	}
+	if !age.Nullable {
+		t.Fatalf("Age should be nullable because the tag says so")
+	}
+	if age.Constraints == nil || age.Constraints.Required {
+		t.Fatalf("Age should not be required")
+	}
+	if got := age.Constraints.MinValue; got == nil || *got != 18 {
+		t.Fatalf("expected min=18, got %v", got)
+	}
+	if got := age.Constraints.MaxValue; got == nil || *got != 150 {
+		t.Fatalf("expected max=150, got %v", got)
+	}
 }
