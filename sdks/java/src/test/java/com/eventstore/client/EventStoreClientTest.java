@@ -10,6 +10,7 @@ import com.eventstore.client.model.GetEventsRequest;
 import com.eventstore.client.model.GetSnapshotRequest;
 import com.eventstore.client.model.SaveSnapshotRequest;
 import com.eventstore.client.model.Snapshot;
+import com.eventstore.client.model.Transition;
 import com.eventstore.client.model.UpsertSchemaRequest;
 import com.eventstore.client.model.UpsertSchemaResponse;
 import com.google.common.util.concurrent.Futures;
@@ -24,6 +25,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -45,7 +47,14 @@ class EventStoreClientTest {
     @Test
     void appendEvent_Success() {
         String streamId = "test-stream";
-        List<Event> events = Collections.singletonList(Event.newBuilder().setId("1").build());
+        List<Event> events = Collections.singletonList(Event.newBuilder()
+                .setId("1")
+                .setTransition(Transition.newBuilder()
+                        .setName("Created")
+                        .setFromState("draft")
+                        .setToState("published")
+                        .build())
+                .build());
         long expectedVersion = 10L;
 
         transport.appendEventResponse = AppendEventResponse.newBuilder().setSuccess(true).build();
@@ -57,6 +66,7 @@ class EventStoreClientTest {
         assertEquals(streamId, transport.lastAppendRequest.getStreamId());
         assertEquals(expectedVersion, transport.lastAppendRequest.getExpectedVersion());
         assertEquals(1, transport.lastAppendRequest.getEventsCount());
+        assertEquals("Created", transport.lastAppendRequest.getEvents(0).getTransition().getName());
         assertEquals(5000L, transport.lastAppendTimeoutMs);
     }
 
@@ -95,7 +105,14 @@ class EventStoreClientTest {
 
     @Test
     void appendEventAsync_Success() {
-        List<Event> events = Collections.emptyList();
+        List<Event> events = Collections.singletonList(Event.newBuilder()
+                .setId("async-1")
+                .setTransition(Transition.newBuilder()
+                        .setName("Created")
+                        .setFromState("draft")
+                        .setToState("published")
+                        .build())
+                .build());
         AppendEventResponse response = AppendEventResponse.newBuilder().setSuccess(true).build();
         transport.appendEventAsyncResponse = Futures.immediateFuture(response);
 
@@ -105,6 +122,35 @@ class EventStoreClientTest {
         assertNotNull(transport.lastAppendAsyncRequest);
         assertEquals(EventStoreClient.ANY_VERSION, transport.lastAppendAsyncRequest.getExpectedVersion());
         assertEquals(5000L, transport.lastAppendAsyncTimeoutMs);
+    }
+
+    @Test
+    void appendEvent_RejectsMissingTransition() {
+        List<Event> events = Collections.singletonList(Event.newBuilder().setId("1").build());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> eventStoreClient.appendEvent("stream", events, 0L));
+
+        assertTrue(ex.getMessage().contains("transition is required"));
+        assertNull(transport.lastAppendRequest);
+    }
+
+    @Test
+    void appendEvent_RejectsTransitionWithoutStateMovement() {
+        List<Event> events = Collections.singletonList(Event.newBuilder()
+                .setId("1")
+                .setTransition(Transition.newBuilder()
+                        .setName("Created")
+                        .setFromState("active")
+                        .setToState("active")
+                        .build())
+                .build());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> eventStoreClient.appendEvent("stream", events, 0L));
+
+        assertTrue(ex.getMessage().contains("must be different"));
+        assertNull(transport.lastAppendRequest);
     }
 
     @Test

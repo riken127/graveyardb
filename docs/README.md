@@ -2,6 +2,8 @@
 
 This directory contains the scope and architecture notes for the current repository state.
 
+GraveyardDB's core lifecycle is `event -> transition -> snapshot`. Every append path described in these docs assumes transition metadata is required on each event.
+
 ## Documentation Structure
 
 * [Scope and Purpose](SCOPE.md): What the project currently does and what is still out of scope.

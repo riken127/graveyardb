@@ -1,5 +1,5 @@
 use graveyar_db::api::event_store_client::EventStoreClient;
-use graveyar_db::api::{AppendEventRequest, Event};
+use graveyar_db::api::{AppendEventRequest, Event, Transition};
 use std::time::Instant;
 
 use uuid::Uuid;
@@ -29,6 +29,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     payload: format!("{{\"worker\": {}, \"seq\": {}}}", i, j).into_bytes(),
                     timestamp: 0,
                     metadata: std::collections::HashMap::new(),
+                    transition: Some(Transition {
+                        name: "stress.appended".to_string(),
+                        from_state: "pending".to_string(),
+                        to_state: "persisted".to_string(),
+                    }),
                 };
 
                 let req = AppendEventRequest {

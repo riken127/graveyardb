@@ -67,7 +67,7 @@ func (x FieldType_Primitive) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FieldType_Primitive.Descriptor instead.
 func (FieldType_Primitive) EnumDescriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{7, 0}
+	return file_eventstore_proto_rawDescGZIP(), []int{8, 0}
 }
 
 // *
@@ -85,8 +85,10 @@ type Event struct {
 	// Timestamp of when the event was created/appended (server side or client side).
 	Timestamp uint64 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	// Key-Value metadata for context (e.g., TraceID, CausationID, SagaStep).
-	// This allows tracking transitions and provenance without modifying the payload.
-	Metadata      map[string]string `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Metadata map[string]string `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Mandatory transition semantics for this event.
+	// Every event must define the state movement it represents.
+	Transition    *Transition `protobuf:"bytes,6,opt,name=transition,proto3" json:"transition,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -156,6 +158,78 @@ func (x *Event) GetMetadata() map[string]string {
 	return nil
 }
 
+func (x *Event) GetTransition() *Transition {
+	if x != nil {
+		return x.Transition
+	}
+	return nil
+}
+
+// *
+// State transition represented by an event.
+type Transition struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Transition name (e.g., "user.activated").
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Previous state before this event was applied.
+	FromState string `protobuf:"bytes,2,opt,name=from_state,json=fromState,proto3" json:"from_state,omitempty"`
+	// Next state after this event was applied.
+	ToState       string `protobuf:"bytes,3,opt,name=to_state,json=toState,proto3" json:"to_state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Transition) Reset() {
+	*x = Transition{}
+	mi := &file_eventstore_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Transition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Transition) ProtoMessage() {}
+
+func (x *Transition) ProtoReflect() protoreflect.Message {
+	mi := &file_eventstore_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Transition.ProtoReflect.Descriptor instead.
+func (*Transition) Descriptor() ([]byte, []int) {
+	return file_eventstore_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Transition) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Transition) GetFromState() string {
+	if x != nil {
+		return x.FromState
+	}
+	return ""
+}
+
+func (x *Transition) GetToState() string {
+	if x != nil {
+		return x.ToState
+	}
+	return ""
+}
+
 // *
 // Request to append a batch of events to a specific stream.
 type AppendEventRequest struct {
@@ -177,7 +251,7 @@ type AppendEventRequest struct {
 
 func (x *AppendEventRequest) Reset() {
 	*x = AppendEventRequest{}
-	mi := &file_eventstore_proto_msgTypes[1]
+	mi := &file_eventstore_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -189,7 +263,7 @@ func (x *AppendEventRequest) String() string {
 func (*AppendEventRequest) ProtoMessage() {}
 
 func (x *AppendEventRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[1]
+	mi := &file_eventstore_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -202,7 +276,7 @@ func (x *AppendEventRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendEventRequest.ProtoReflect.Descriptor instead.
 func (*AppendEventRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{1}
+	return file_eventstore_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *AppendEventRequest) GetStreamId() string {
@@ -242,7 +316,7 @@ type AppendEventResponse struct {
 
 func (x *AppendEventResponse) Reset() {
 	*x = AppendEventResponse{}
-	mi := &file_eventstore_proto_msgTypes[2]
+	mi := &file_eventstore_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -254,7 +328,7 @@ func (x *AppendEventResponse) String() string {
 func (*AppendEventResponse) ProtoMessage() {}
 
 func (x *AppendEventResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[2]
+	mi := &file_eventstore_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -267,7 +341,7 @@ func (x *AppendEventResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendEventResponse.ProtoReflect.Descriptor instead.
 func (*AppendEventResponse) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{2}
+	return file_eventstore_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *AppendEventResponse) GetSuccess() bool {
@@ -286,7 +360,7 @@ type GetEventsRequest struct {
 
 func (x *GetEventsRequest) Reset() {
 	*x = GetEventsRequest{}
-	mi := &file_eventstore_proto_msgTypes[3]
+	mi := &file_eventstore_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -298,7 +372,7 @@ func (x *GetEventsRequest) String() string {
 func (*GetEventsRequest) ProtoMessage() {}
 
 func (x *GetEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[3]
+	mi := &file_eventstore_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -311,7 +385,7 @@ func (x *GetEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetEventsRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{3}
+	return file_eventstore_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetEventsRequest) GetStreamId() string {
@@ -333,7 +407,7 @@ type Schema struct {
 
 func (x *Schema) Reset() {
 	*x = Schema{}
-	mi := &file_eventstore_proto_msgTypes[4]
+	mi := &file_eventstore_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -345,7 +419,7 @@ func (x *Schema) String() string {
 func (*Schema) ProtoMessage() {}
 
 func (x *Schema) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[4]
+	mi := &file_eventstore_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -358,7 +432,7 @@ func (x *Schema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Schema.ProtoReflect.Descriptor instead.
 func (*Schema) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{4}
+	return file_eventstore_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Schema) GetName() string {
@@ -390,7 +464,7 @@ type Field struct {
 
 func (x *Field) Reset() {
 	*x = Field{}
-	mi := &file_eventstore_proto_msgTypes[5]
+	mi := &file_eventstore_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -402,7 +476,7 @@ func (x *Field) String() string {
 func (*Field) ProtoMessage() {}
 
 func (x *Field) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[5]
+	mi := &file_eventstore_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -415,7 +489,7 @@ func (x *Field) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Field.ProtoReflect.Descriptor instead.
 func (*Field) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{5}
+	return file_eventstore_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Field) GetFieldType() *FieldType {
@@ -464,7 +538,7 @@ type FieldConstraints struct {
 
 func (x *FieldConstraints) Reset() {
 	*x = FieldConstraints{}
-	mi := &file_eventstore_proto_msgTypes[6]
+	mi := &file_eventstore_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -476,7 +550,7 @@ func (x *FieldConstraints) String() string {
 func (*FieldConstraints) ProtoMessage() {}
 
 func (x *FieldConstraints) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[6]
+	mi := &file_eventstore_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -489,7 +563,7 @@ func (x *FieldConstraints) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldConstraints.ProtoReflect.Descriptor instead.
 func (*FieldConstraints) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{6}
+	return file_eventstore_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *FieldConstraints) GetRequired() bool {
@@ -551,7 +625,7 @@ type FieldType struct {
 
 func (x *FieldType) Reset() {
 	*x = FieldType{}
-	mi := &file_eventstore_proto_msgTypes[7]
+	mi := &file_eventstore_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -563,7 +637,7 @@ func (x *FieldType) String() string {
 func (*FieldType) ProtoMessage() {}
 
 func (x *FieldType) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[7]
+	mi := &file_eventstore_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -576,7 +650,7 @@ func (x *FieldType) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldType.ProtoReflect.Descriptor instead.
 func (*FieldType) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{7}
+	return file_eventstore_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FieldType) GetKind() isFieldType_Kind {
@@ -659,7 +733,7 @@ type UpsertSchemaRequest struct {
 
 func (x *UpsertSchemaRequest) Reset() {
 	*x = UpsertSchemaRequest{}
-	mi := &file_eventstore_proto_msgTypes[8]
+	mi := &file_eventstore_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -671,7 +745,7 @@ func (x *UpsertSchemaRequest) String() string {
 func (*UpsertSchemaRequest) ProtoMessage() {}
 
 func (x *UpsertSchemaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[8]
+	mi := &file_eventstore_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -684,7 +758,7 @@ func (x *UpsertSchemaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpsertSchemaRequest.ProtoReflect.Descriptor instead.
 func (*UpsertSchemaRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{8}
+	return file_eventstore_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UpsertSchemaRequest) GetSchema() *Schema {
@@ -704,7 +778,7 @@ type UpsertSchemaResponse struct {
 
 func (x *UpsertSchemaResponse) Reset() {
 	*x = UpsertSchemaResponse{}
-	mi := &file_eventstore_proto_msgTypes[9]
+	mi := &file_eventstore_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -716,7 +790,7 @@ func (x *UpsertSchemaResponse) String() string {
 func (*UpsertSchemaResponse) ProtoMessage() {}
 
 func (x *UpsertSchemaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[9]
+	mi := &file_eventstore_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -729,7 +803,7 @@ func (x *UpsertSchemaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpsertSchemaResponse.ProtoReflect.Descriptor instead.
 func (*UpsertSchemaResponse) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{9}
+	return file_eventstore_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UpsertSchemaResponse) GetSuccess() bool {
@@ -755,7 +829,7 @@ type GetSchemaRequest struct {
 
 func (x *GetSchemaRequest) Reset() {
 	*x = GetSchemaRequest{}
-	mi := &file_eventstore_proto_msgTypes[10]
+	mi := &file_eventstore_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -767,7 +841,7 @@ func (x *GetSchemaRequest) String() string {
 func (*GetSchemaRequest) ProtoMessage() {}
 
 func (x *GetSchemaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[10]
+	mi := &file_eventstore_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -780,7 +854,7 @@ func (x *GetSchemaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSchemaRequest.ProtoReflect.Descriptor instead.
 func (*GetSchemaRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{10}
+	return file_eventstore_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetSchemaRequest) GetName() string {
@@ -800,7 +874,7 @@ type GetSchemaResponse struct {
 
 func (x *GetSchemaResponse) Reset() {
 	*x = GetSchemaResponse{}
-	mi := &file_eventstore_proto_msgTypes[11]
+	mi := &file_eventstore_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -812,7 +886,7 @@ func (x *GetSchemaResponse) String() string {
 func (*GetSchemaResponse) ProtoMessage() {}
 
 func (x *GetSchemaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[11]
+	mi := &file_eventstore_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -825,7 +899,7 @@ func (x *GetSchemaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSchemaResponse.ProtoReflect.Descriptor instead.
 func (*GetSchemaResponse) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{11}
+	return file_eventstore_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetSchemaResponse) GetSchema() *Schema {
@@ -856,7 +930,7 @@ type Snapshot struct {
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_eventstore_proto_msgTypes[12]
+	mi := &file_eventstore_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -868,7 +942,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[12]
+	mi := &file_eventstore_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -881,7 +955,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{12}
+	return file_eventstore_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Snapshot) GetStreamId() string {
@@ -921,7 +995,7 @@ type SaveSnapshotRequest struct {
 
 func (x *SaveSnapshotRequest) Reset() {
 	*x = SaveSnapshotRequest{}
-	mi := &file_eventstore_proto_msgTypes[13]
+	mi := &file_eventstore_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -933,7 +1007,7 @@ func (x *SaveSnapshotRequest) String() string {
 func (*SaveSnapshotRequest) ProtoMessage() {}
 
 func (x *SaveSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[13]
+	mi := &file_eventstore_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -946,7 +1020,7 @@ func (x *SaveSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*SaveSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{13}
+	return file_eventstore_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SaveSnapshotRequest) GetSnapshot() *Snapshot {
@@ -965,7 +1039,7 @@ type SaveSnapshotResponse struct {
 
 func (x *SaveSnapshotResponse) Reset() {
 	*x = SaveSnapshotResponse{}
-	mi := &file_eventstore_proto_msgTypes[14]
+	mi := &file_eventstore_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -977,7 +1051,7 @@ func (x *SaveSnapshotResponse) String() string {
 func (*SaveSnapshotResponse) ProtoMessage() {}
 
 func (x *SaveSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[14]
+	mi := &file_eventstore_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -990,7 +1064,7 @@ func (x *SaveSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*SaveSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{14}
+	return file_eventstore_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SaveSnapshotResponse) GetSuccess() bool {
@@ -1009,7 +1083,7 @@ type GetSnapshotRequest struct {
 
 func (x *GetSnapshotRequest) Reset() {
 	*x = GetSnapshotRequest{}
-	mi := &file_eventstore_proto_msgTypes[15]
+	mi := &file_eventstore_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1021,7 +1095,7 @@ func (x *GetSnapshotRequest) String() string {
 func (*GetSnapshotRequest) ProtoMessage() {}
 
 func (x *GetSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[15]
+	mi := &file_eventstore_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1034,7 +1108,7 @@ func (x *GetSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*GetSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{15}
+	return file_eventstore_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetSnapshotRequest) GetStreamId() string {
@@ -1054,7 +1128,7 @@ type GetSnapshotResponse struct {
 
 func (x *GetSnapshotResponse) Reset() {
 	*x = GetSnapshotResponse{}
-	mi := &file_eventstore_proto_msgTypes[16]
+	mi := &file_eventstore_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1066,7 +1140,7 @@ func (x *GetSnapshotResponse) String() string {
 func (*GetSnapshotResponse) ProtoMessage() {}
 
 func (x *GetSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[16]
+	mi := &file_eventstore_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1079,7 +1153,7 @@ func (x *GetSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*GetSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{16}
+	return file_eventstore_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetSnapshotResponse) GetSnapshot() *Snapshot {
@@ -1105,7 +1179,7 @@ type FieldType_Enum struct {
 
 func (x *FieldType_Enum) Reset() {
 	*x = FieldType_Enum{}
-	mi := &file_eventstore_proto_msgTypes[19]
+	mi := &file_eventstore_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1117,7 +1191,7 @@ func (x *FieldType_Enum) String() string {
 func (*FieldType_Enum) ProtoMessage() {}
 
 func (x *FieldType_Enum) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[19]
+	mi := &file_eventstore_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1130,7 +1204,7 @@ func (x *FieldType_Enum) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldType_Enum.ProtoReflect.Descriptor instead.
 func (*FieldType_Enum) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{7, 0}
+	return file_eventstore_proto_rawDescGZIP(), []int{8, 0}
 }
 
 func (x *FieldType_Enum) GetVariants() []string {
@@ -1149,7 +1223,7 @@ type FieldType_Array struct {
 
 func (x *FieldType_Array) Reset() {
 	*x = FieldType_Array{}
-	mi := &file_eventstore_proto_msgTypes[20]
+	mi := &file_eventstore_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1161,7 +1235,7 @@ func (x *FieldType_Array) String() string {
 func (*FieldType_Array) ProtoMessage() {}
 
 func (x *FieldType_Array) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_proto_msgTypes[20]
+	mi := &file_eventstore_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1174,7 +1248,7 @@ func (x *FieldType_Array) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldType_Array.ProtoReflect.Descriptor instead.
 func (*FieldType_Array) Descriptor() ([]byte, []int) {
-	return file_eventstore_proto_rawDescGZIP(), []int{7, 1}
+	return file_eventstore_proto_rawDescGZIP(), []int{8, 1}
 }
 
 func (x *FieldType_Array) GetElementType() *FieldType {
@@ -1189,17 +1263,26 @@ var File_eventstore_proto protoreflect.FileDescriptor
 const file_eventstore_proto_rawDesc = "" +
 	"\n" +
 	"\x10eventstore.proto\x12\n" +
-	"eventstore\"\xe8\x01\n" +
+	"eventstore\"\xa0\x02\n" +
 	"\x05Event\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
 	"event_type\x18\x02 \x01(\tR\teventType\x12\x18\n" +
 	"\apayload\x18\x03 \x01(\fR\apayload\x12\x1c\n" +
 	"\ttimestamp\x18\x04 \x01(\x04R\ttimestamp\x12;\n" +
-	"\bmetadata\x18\x05 \x03(\v2\x1f.eventstore.Event.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\x05 \x03(\v2\x1f.eventstore.Event.MetadataEntryR\bmetadata\x126\n" +
+	"\n" +
+	"transition\x18\x06 \x01(\v2\x16.eventstore.TransitionR\n" +
+	"transition\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xaa\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"Z\n" +
+	"\n" +
+	"Transition\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"from_state\x18\x02 \x01(\tR\tfromState\x12\x19\n" +
+	"\bto_state\x18\x03 \x01(\tR\atoState\"\xaa\x01\n" +
 	"\x12AppendEventRequest\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12)\n" +
 	"\x06events\x18\x02 \x03(\v2\x11.eventstore.EventR\x06events\x12)\n" +
@@ -1301,64 +1384,66 @@ func file_eventstore_proto_rawDescGZIP() []byte {
 }
 
 var file_eventstore_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_eventstore_proto_goTypes = []any{
 	(FieldType_Primitive)(0),     // 0: eventstore.FieldType.Primitive
 	(*Event)(nil),                // 1: eventstore.Event
-	(*AppendEventRequest)(nil),   // 2: eventstore.AppendEventRequest
-	(*AppendEventResponse)(nil),  // 3: eventstore.AppendEventResponse
-	(*GetEventsRequest)(nil),     // 4: eventstore.GetEventsRequest
-	(*Schema)(nil),               // 5: eventstore.Schema
-	(*Field)(nil),                // 6: eventstore.Field
-	(*FieldConstraints)(nil),     // 7: eventstore.FieldConstraints
-	(*FieldType)(nil),            // 8: eventstore.FieldType
-	(*UpsertSchemaRequest)(nil),  // 9: eventstore.UpsertSchemaRequest
-	(*UpsertSchemaResponse)(nil), // 10: eventstore.UpsertSchemaResponse
-	(*GetSchemaRequest)(nil),     // 11: eventstore.GetSchemaRequest
-	(*GetSchemaResponse)(nil),    // 12: eventstore.GetSchemaResponse
-	(*Snapshot)(nil),             // 13: eventstore.Snapshot
-	(*SaveSnapshotRequest)(nil),  // 14: eventstore.SaveSnapshotRequest
-	(*SaveSnapshotResponse)(nil), // 15: eventstore.SaveSnapshotResponse
-	(*GetSnapshotRequest)(nil),   // 16: eventstore.GetSnapshotRequest
-	(*GetSnapshotResponse)(nil),  // 17: eventstore.GetSnapshotResponse
-	nil,                          // 18: eventstore.Event.MetadataEntry
-	nil,                          // 19: eventstore.Schema.FieldsEntry
-	(*FieldType_Enum)(nil),       // 20: eventstore.FieldType.Enum
-	(*FieldType_Array)(nil),      // 21: eventstore.FieldType.Array
+	(*Transition)(nil),           // 2: eventstore.Transition
+	(*AppendEventRequest)(nil),   // 3: eventstore.AppendEventRequest
+	(*AppendEventResponse)(nil),  // 4: eventstore.AppendEventResponse
+	(*GetEventsRequest)(nil),     // 5: eventstore.GetEventsRequest
+	(*Schema)(nil),               // 6: eventstore.Schema
+	(*Field)(nil),                // 7: eventstore.Field
+	(*FieldConstraints)(nil),     // 8: eventstore.FieldConstraints
+	(*FieldType)(nil),            // 9: eventstore.FieldType
+	(*UpsertSchemaRequest)(nil),  // 10: eventstore.UpsertSchemaRequest
+	(*UpsertSchemaResponse)(nil), // 11: eventstore.UpsertSchemaResponse
+	(*GetSchemaRequest)(nil),     // 12: eventstore.GetSchemaRequest
+	(*GetSchemaResponse)(nil),    // 13: eventstore.GetSchemaResponse
+	(*Snapshot)(nil),             // 14: eventstore.Snapshot
+	(*SaveSnapshotRequest)(nil),  // 15: eventstore.SaveSnapshotRequest
+	(*SaveSnapshotResponse)(nil), // 16: eventstore.SaveSnapshotResponse
+	(*GetSnapshotRequest)(nil),   // 17: eventstore.GetSnapshotRequest
+	(*GetSnapshotResponse)(nil),  // 18: eventstore.GetSnapshotResponse
+	nil,                          // 19: eventstore.Event.MetadataEntry
+	nil,                          // 20: eventstore.Schema.FieldsEntry
+	(*FieldType_Enum)(nil),       // 21: eventstore.FieldType.Enum
+	(*FieldType_Array)(nil),      // 22: eventstore.FieldType.Array
 }
 var file_eventstore_proto_depIdxs = []int32{
-	18, // 0: eventstore.Event.metadata:type_name -> eventstore.Event.MetadataEntry
-	1,  // 1: eventstore.AppendEventRequest.events:type_name -> eventstore.Event
-	19, // 2: eventstore.Schema.fields:type_name -> eventstore.Schema.FieldsEntry
-	8,  // 3: eventstore.Field.field_type:type_name -> eventstore.FieldType
-	7,  // 4: eventstore.Field.constraints:type_name -> eventstore.FieldConstraints
-	0,  // 5: eventstore.FieldType.primitive:type_name -> eventstore.FieldType.Primitive
-	20, // 6: eventstore.FieldType.enum_def:type_name -> eventstore.FieldType.Enum
-	5,  // 7: eventstore.FieldType.sub_schema:type_name -> eventstore.Schema
-	21, // 8: eventstore.FieldType.array_def:type_name -> eventstore.FieldType.Array
-	5,  // 9: eventstore.UpsertSchemaRequest.schema:type_name -> eventstore.Schema
-	5,  // 10: eventstore.GetSchemaResponse.schema:type_name -> eventstore.Schema
-	13, // 11: eventstore.SaveSnapshotRequest.snapshot:type_name -> eventstore.Snapshot
-	13, // 12: eventstore.GetSnapshotResponse.snapshot:type_name -> eventstore.Snapshot
-	6,  // 13: eventstore.Schema.FieldsEntry.value:type_name -> eventstore.Field
-	8,  // 14: eventstore.FieldType.Array.element_type:type_name -> eventstore.FieldType
-	2,  // 15: eventstore.EventStore.AppendEvent:input_type -> eventstore.AppendEventRequest
-	4,  // 16: eventstore.EventStore.GetEvents:input_type -> eventstore.GetEventsRequest
-	9,  // 17: eventstore.EventStore.UpsertSchema:input_type -> eventstore.UpsertSchemaRequest
-	11, // 18: eventstore.EventStore.GetSchema:input_type -> eventstore.GetSchemaRequest
-	14, // 19: eventstore.EventStore.SaveSnapshot:input_type -> eventstore.SaveSnapshotRequest
-	16, // 20: eventstore.EventStore.GetSnapshot:input_type -> eventstore.GetSnapshotRequest
-	3,  // 21: eventstore.EventStore.AppendEvent:output_type -> eventstore.AppendEventResponse
-	1,  // 22: eventstore.EventStore.GetEvents:output_type -> eventstore.Event
-	10, // 23: eventstore.EventStore.UpsertSchema:output_type -> eventstore.UpsertSchemaResponse
-	12, // 24: eventstore.EventStore.GetSchema:output_type -> eventstore.GetSchemaResponse
-	15, // 25: eventstore.EventStore.SaveSnapshot:output_type -> eventstore.SaveSnapshotResponse
-	17, // 26: eventstore.EventStore.GetSnapshot:output_type -> eventstore.GetSnapshotResponse
-	21, // [21:27] is the sub-list for method output_type
-	15, // [15:21] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	19, // 0: eventstore.Event.metadata:type_name -> eventstore.Event.MetadataEntry
+	2,  // 1: eventstore.Event.transition:type_name -> eventstore.Transition
+	1,  // 2: eventstore.AppendEventRequest.events:type_name -> eventstore.Event
+	20, // 3: eventstore.Schema.fields:type_name -> eventstore.Schema.FieldsEntry
+	9,  // 4: eventstore.Field.field_type:type_name -> eventstore.FieldType
+	8,  // 5: eventstore.Field.constraints:type_name -> eventstore.FieldConstraints
+	0,  // 6: eventstore.FieldType.primitive:type_name -> eventstore.FieldType.Primitive
+	21, // 7: eventstore.FieldType.enum_def:type_name -> eventstore.FieldType.Enum
+	6,  // 8: eventstore.FieldType.sub_schema:type_name -> eventstore.Schema
+	22, // 9: eventstore.FieldType.array_def:type_name -> eventstore.FieldType.Array
+	6,  // 10: eventstore.UpsertSchemaRequest.schema:type_name -> eventstore.Schema
+	6,  // 11: eventstore.GetSchemaResponse.schema:type_name -> eventstore.Schema
+	14, // 12: eventstore.SaveSnapshotRequest.snapshot:type_name -> eventstore.Snapshot
+	14, // 13: eventstore.GetSnapshotResponse.snapshot:type_name -> eventstore.Snapshot
+	7,  // 14: eventstore.Schema.FieldsEntry.value:type_name -> eventstore.Field
+	9,  // 15: eventstore.FieldType.Array.element_type:type_name -> eventstore.FieldType
+	3,  // 16: eventstore.EventStore.AppendEvent:input_type -> eventstore.AppendEventRequest
+	5,  // 17: eventstore.EventStore.GetEvents:input_type -> eventstore.GetEventsRequest
+	10, // 18: eventstore.EventStore.UpsertSchema:input_type -> eventstore.UpsertSchemaRequest
+	12, // 19: eventstore.EventStore.GetSchema:input_type -> eventstore.GetSchemaRequest
+	15, // 20: eventstore.EventStore.SaveSnapshot:input_type -> eventstore.SaveSnapshotRequest
+	17, // 21: eventstore.EventStore.GetSnapshot:input_type -> eventstore.GetSnapshotRequest
+	4,  // 22: eventstore.EventStore.AppendEvent:output_type -> eventstore.AppendEventResponse
+	1,  // 23: eventstore.EventStore.GetEvents:output_type -> eventstore.Event
+	11, // 24: eventstore.EventStore.UpsertSchema:output_type -> eventstore.UpsertSchemaResponse
+	13, // 25: eventstore.EventStore.GetSchema:output_type -> eventstore.GetSchemaResponse
+	16, // 26: eventstore.EventStore.SaveSnapshot:output_type -> eventstore.SaveSnapshotResponse
+	18, // 27: eventstore.EventStore.GetSnapshot:output_type -> eventstore.GetSnapshotResponse
+	22, // [22:28] is the sub-list for method output_type
+	16, // [16:22] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_eventstore_proto_init() }
@@ -1366,8 +1451,8 @@ func file_eventstore_proto_init() {
 	if File_eventstore_proto != nil {
 		return
 	}
-	file_eventstore_proto_msgTypes[6].OneofWrappers = []any{}
-	file_eventstore_proto_msgTypes[7].OneofWrappers = []any{
+	file_eventstore_proto_msgTypes[7].OneofWrappers = []any{}
+	file_eventstore_proto_msgTypes[8].OneofWrappers = []any{
 		(*FieldType_Primitive_)(nil),
 		(*FieldType_EnumDef)(nil),
 		(*FieldType_SubSchema)(nil),
@@ -1379,7 +1464,7 @@ func file_eventstore_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_eventstore_proto_rawDesc), len(file_eventstore_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   21,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -6,6 +6,7 @@ import com.eventstore.client.annotations.GraveyardField;
 import com.eventstore.client.config.EventStoreConfig;
 import com.eventstore.client.model.Event;
 import com.eventstore.client.model.Snapshot;
+import com.eventstore.client.model.Transition;
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -96,6 +97,11 @@ public class GraveyardDemoTest {
                 .setId(UUID.randomUUID().toString())
                 .setEventType("UserCreated")
                 .setPayload(ByteString.copyFromUtf8(payload))
+                .setTransition(Transition.newBuilder()
+                        .setName("UserCreated")
+                        .setFromState("draft")
+                        .setToState("active")
+                        .build())
                 .putMetadata("TraceID", "abc-123")
                 .putMetadata("By", "Admin")
                 .build();

@@ -85,13 +85,19 @@ impl EventStore for InMemoryEventStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::events::event::Transition;
     use crate::domain::events::event_kind::{EventKind, EventPayload};
 
     #[tokio::test]
     async fn test_append_and_load() {
         let store = InMemoryEventStore::new();
         let payload = EventPayload(vec![1, 2, 3]);
-        let event = Event::new("stream-1", EventKind::Internal, payload);
+        let event = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            payload,
+            Transition::new("created", "none", "active"),
+        );
 
         store
             .append_event("stream-1", event.clone(), 0)
@@ -116,8 +122,18 @@ mod tests {
     #[tokio::test]
     async fn test_expected_zero_conflicts_on_existing_stream() {
         let store = InMemoryEventStore::new();
-        let first = Event::new("stream-1", EventKind::Internal, EventPayload(vec![1]));
-        let second = Event::new("stream-1", EventKind::Internal, EventPayload(vec![2]));
+        let first = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            EventPayload(vec![1]),
+            Transition::new("created", "none", "active"),
+        );
+        let second = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            EventPayload(vec![2]),
+            Transition::new("updated", "active", "suspended"),
+        );
 
         store
             .append_event("stream-1", first, 0)

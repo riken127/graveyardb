@@ -77,13 +77,24 @@ client.upsertSchema(UserProfile.class);
 
 ### Append Sync
 
+The snippet assumes `Event` and `Transition` are imported from `com.eventstore.client.model`.
+
 ```java
-List<Event> events = List.of(Event.newBuilder()...build());
+List<Event> events = List.of(Event.newBuilder()
+    .setId("1")
+    .setEventType("UserCreated")
+    .setTransition(Transition.newBuilder()
+        .setName("UserCreated")
+        .setFromState("draft")
+        .setToState("active")
+        .build())
+    .build());
 // Use EventStoreClient.ANY_VERSION for "append regardless of current stream version".
 boolean success = client.appendEvent("stream-1", events, EventStoreClient.ANY_VERSION);
 ```
 
 `EventStoreClient.ANY_VERSION` maps to the server's `expected_version = -1` sentinel. Any other negative value is rejected by the client before the request is sent.
+Every appended event must include a non-empty transition name, `from_state`, and `to_state`, and `from_state` must differ from `to_state`.
 
 ### Append Async
 

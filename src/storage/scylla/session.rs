@@ -57,6 +57,9 @@ impl ScyllaStore {
              payload blob, \
              timestamp bigint, \
              metadata map<text, text>, \
+             transition_name text, \
+             transition_from_state text, \
+             transition_to_state text, \
              PRIMARY KEY (stream_id, version))",
             self.keyspace
         );
@@ -85,6 +88,30 @@ impl ScyllaStore {
         );
         let _ = self.session.query_unpaged(alter_table, &[]).await;
 
+        let alter_transition_name = format!(
+            "ALTER TABLE {}.events ADD transition_name text",
+            self.keyspace
+        );
+        let _ = self.session.query_unpaged(alter_transition_name, &[]).await;
+
+        let alter_transition_from_state = format!(
+            "ALTER TABLE {}.events ADD transition_from_state text",
+            self.keyspace
+        );
+        let _ = self
+            .session
+            .query_unpaged(alter_transition_from_state, &[])
+            .await;
+
+        let alter_transition_to_state = format!(
+            "ALTER TABLE {}.events ADD transition_to_state text",
+            self.keyspace
+        );
+        let _ = self
+            .session
+            .query_unpaged(alter_transition_to_state, &[])
+            .await;
+
         Ok(())
     }
 
@@ -93,7 +120,7 @@ impl ScyllaStore {
     }
 }
 
-use crate::domain::events::event::Event;
+use crate::domain::events::event::{Event, Transition};
 use crate::domain::events::event_kind::{EventKind, EventPayload};
 use crate::domain::schema::model::Schema;
 use crate::storage::event_store::{EventStore, EventStoreError};
@@ -108,7 +135,7 @@ impl EventStore for ScyllaStore {
         expected_version: u64,
     ) -> Result<(), EventStoreError> {
         let query = format!(
-            "INSERT INTO {}.events (stream_id, version, id, event_type, payload, timestamp, metadata) VALUES (?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS",
+            "INSERT INTO {}.events (stream_id, version, id, event_type, payload, timestamp, metadata, transition_name, transition_from_state, transition_to_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS",
             self.keyspace
         );
 
@@ -121,6 +148,9 @@ impl EventStore for ScyllaStore {
         let timestamp = event.timestamp.0 as i64;
         let version = next_version as i64;
         let metadata = event.metadata;
+        let transition_name = event.transition.name;
+        let transition_from_state = event.transition.from_state;
+        let transition_to_state = event.transition.to_state;
 
         let result = self
             .session
@@ -134,6 +164,9 @@ impl EventStore for ScyllaStore {
                     payload,
                     timestamp,
                     metadata,
+                    transition_name,
+                    transition_from_state,
+                    transition_to_state,
                 ),
             )
             .await
@@ -159,7 +192,7 @@ impl EventStore for ScyllaStore {
 
     async fn fetch_stream(&self, stream: &str) -> Result<Vec<Event>, EventStoreError> {
         let query = format!(
-            "SELECT stream_id, version, id, event_type, payload, timestamp, metadata FROM {}.events WHERE stream_id = ? ORDER BY version ASC",
+            "SELECT stream_id, version, id, event_type, payload, timestamp, metadata, transition_name, transition_from_state, transition_to_state FROM {}.events WHERE stream_id = ? ORDER BY version ASC",
             self.keyspace
         );
 
@@ -182,17 +215,42 @@ impl EventStore for ScyllaStore {
                 Vec<u8>,
                 i64,
                 Option<std::collections::HashMap<String, String>>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
             )>()
             .map_err(|e| EventStoreError::StorageError(e.to_string()))?;
 
         let mut events = Vec::new();
 
         for row in rows {
-            let (_stream_id, version, id, event_type_str, payload, timestamp, metadata) =
-                row.map_err(|e| EventStoreError::StorageError(e.to_string()))?;
+            let (
+                _stream_id,
+                version,
+                id,
+                event_type_str,
+                payload,
+                timestamp,
+                metadata,
+                transition_name,
+                transition_from_state,
+                transition_to_state,
+            ) = row.map_err(|e| EventStoreError::StorageError(e.to_string()))?;
 
             let event_type =
                 crate::domain::events::event_kind::EventKind::from_type_name(&event_type_str);
+            let metadata = metadata.unwrap_or_default();
+            let transition = Transition::new(
+                transition_name
+                    .or_else(|| metadata.get("transition.name").cloned())
+                    .unwrap_or_else(|| "legacy.unknown".to_string()),
+                transition_from_state
+                    .or_else(|| metadata.get("transition.from_state").cloned())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                transition_to_state
+                    .or_else(|| metadata.get("transition.to_state").cloned())
+                    .unwrap_or_else(|| "unknown".to_string()),
+            );
 
             events.push(Event {
                 id: crate::domain::events::event_kind::EventId(id),
@@ -201,7 +259,8 @@ impl EventStore for ScyllaStore {
                 event_type,
                 payload: crate::domain::events::event_kind::EventPayload(payload),
                 timestamp: crate::domain::events::event_kind::Timestamp(timestamp as u64),
-                metadata: metadata.unwrap_or_default(),
+                transition,
+                metadata,
             });
         }
         Ok(events)
@@ -216,6 +275,7 @@ impl EventStore for ScyllaStore {
             &stream_id,
             EventKind::Schematic,
             EventPayload(payload_bytes.clone()),
+            Transition::new("schema.upserted", "schema.previous", "schema.current"),
         );
 
         // Fetch stream tail to preserve OCC guarantees for schema updates.

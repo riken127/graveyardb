@@ -10,6 +10,7 @@ All notable changes to GraveyardDB will be documented here.
 
 ### Changed
 
+* Transition metadata is now mandatory on every event append; the server rejects writes that do not include `name`, `from_state`, and `to_state`.
 * Runtime Docker image defaults now use `SCYLLA_KEYSPACE` to match server configuration.
 
 ## 0.2.0 - 2026-03-22

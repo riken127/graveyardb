@@ -64,12 +64,21 @@ await client.upsertSchema(UserProfile);
 
 ```typescript
 const result = await client.appendEvent('stream-1', [
-  { id: '1', eventType: 'Created', payload: Buffer.from('...'), timestamp: Date.now() }
+  {
+    id: '1',
+    eventType: 'Created',
+    payload: Buffer.from('...'),
+    timestamp: Date.now(),
+    transition: { name: 'Created', fromState: 'draft', toState: 'published' }
+  }
 ], ANY_VERSION);
 ```
 
 If you need optimistic concurrency, replace `ANY_VERSION` with the current
 stream version returned by your read path.
+
+Every appended event must include `transition.name`, `transition.fromState`,
+and `transition.toState`. The SDK also requires `fromState !== toState`.
 
 ## Public Imports
 

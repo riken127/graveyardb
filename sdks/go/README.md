@@ -59,6 +59,11 @@ events := []*pb.Event{
 		EventType: "UserCreated",
 		Payload:   []byte(`{"name":"Ada"}`),
 		Timestamp: uint64(time.Now().UnixMilli()),
+		Transition: &pb.Transition{
+			Name:      "UserCreated",
+			FromState: "draft",
+			ToState:   "active",
+		},
 	},
 }
 
@@ -70,6 +75,7 @@ if err != nil {
 
 Use `client.ExpectedVersionAny` when you want the server to accept the append without checking the current stream version. Pass an explicit version when you want optimistic concurrency control.
 Only `-1` and non-negative versions are valid; the client rejects smaller values before the RPC is sent.
+Each event must also include a non-empty `transition` with `name`, `from_state`, and `to_state`, and `from_state` must differ from `to_state`.
 
 ### Generate and Register a Schema
 

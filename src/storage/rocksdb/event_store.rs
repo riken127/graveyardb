@@ -3,7 +3,7 @@ use tonic::async_trait;
 
 use crate::domain::schema::model::Schema;
 use crate::{
-    domain::events::event::Event,
+    domain::events::event::{Event, Transition},
     storage::event_store::{EventStore, EventStoreError},
 };
 
@@ -110,6 +110,7 @@ impl EventStore for RocksEventStore {
             &stream,
             crate::domain::events::event_kind::EventKind::Schematic,
             crate::domain::events::event_kind::EventPayload(payload_bytes.clone()),
+            Transition::new("schema.upserted", "schema.previous", "schema.current"),
         );
 
         self.append_event(&stream, event, ver).await?;
@@ -149,7 +150,12 @@ mod tests {
         let db_path = temp_dir.path().to_str().unwrap();
 
         let payload = EventPayload(vec![1, 2, 3]);
-        let event = Event::new("stream-p", EventKind::Internal, payload.clone());
+        let event = Event::new(
+            "stream-p",
+            EventKind::Internal,
+            payload.clone(),
+            Transition::new("event.appended", "pending", "persisted"),
+        );
 
         {
             let store = RocksEventStore::new(db_path).expect("failed to open db");
@@ -177,8 +183,18 @@ mod tests {
         let db_path = temp_dir.path().to_str().unwrap();
         let store = RocksEventStore::new(db_path).expect("failed to open db");
 
-        let event1 = Event::new("stream-o", EventKind::Internal, EventPayload(vec![1]));
-        let event2 = Event::new("stream-o", EventKind::Internal, EventPayload(vec![2]));
+        let event1 = Event::new(
+            "stream-o",
+            EventKind::Internal,
+            EventPayload(vec![1]),
+            Transition::new("event.appended", "pending", "persisted"),
+        );
+        let event2 = Event::new(
+            "stream-o",
+            EventKind::Internal,
+            EventPayload(vec![2]),
+            Transition::new("event.appended", "pending", "persisted"),
+        );
 
         store
             .append_event("stream-o", event1.clone(), 0)
@@ -204,9 +220,24 @@ mod tests {
         let db_path = temp_dir.path().to_str().unwrap();
         let store = RocksEventStore::new(db_path).expect("failed to open db");
 
-        let event1 = Event::new("stream-c", EventKind::Internal, EventPayload(vec![1]));
-        let event2 = Event::new("stream-c", EventKind::Internal, EventPayload(vec![2]));
-        let event3 = Event::new("stream-c", EventKind::Internal, EventPayload(vec![3]));
+        let event1 = Event::new(
+            "stream-c",
+            EventKind::Internal,
+            EventPayload(vec![1]),
+            Transition::new("event.appended", "pending", "persisted"),
+        );
+        let event2 = Event::new(
+            "stream-c",
+            EventKind::Internal,
+            EventPayload(vec![2]),
+            Transition::new("event.appended", "pending", "persisted"),
+        );
+        let event3 = Event::new(
+            "stream-c",
+            EventKind::Internal,
+            EventPayload(vec![3]),
+            Transition::new("event.appended", "pending", "persisted"),
+        );
 
         store
             .append_event("stream-c", event1.clone(), 0)

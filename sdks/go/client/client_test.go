@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"google.golang.org/grpc/metadata"
+
+	pb "github.com/riken127/graveyar_db/sdks/go/proto"
 )
 
 func TestEncodeExpectedVersion(t *testing.T) {
@@ -29,6 +31,48 @@ func TestEncodeExpectedVersion(t *testing.T) {
 		t.Fatalf("expected negative versions below the sentinel to fail")
 	} else if err.Error() != "expected_version must be -1 or a non-negative version" {
 		t.Fatalf("unexpected error message %q", err)
+	}
+}
+
+func TestValidateTransition(t *testing.T) {
+	if err := validateTransition(&pb.Transition{
+		Name:      "Activated",
+		FromState: "pending",
+		ToState:   "active",
+	}, 0); err != nil {
+		t.Fatalf("validateTransition failed: %v", err)
+	}
+
+	if err := validateTransition(nil, 1); err == nil {
+		t.Fatalf("expected missing transition to fail")
+	}
+
+	if err := validateTransition(&pb.Transition{Name: " ", FromState: "pending", ToState: "active"}, 2); err == nil || !strings.Contains(err.Error(), "transition.name") {
+		t.Fatalf("expected blank transition name to fail, got %v", err)
+	}
+
+	if err := validateTransition(&pb.Transition{Name: "Activated", FromState: "active", ToState: "active"}, 3); err == nil || !strings.Contains(err.Error(), "must be different") {
+		t.Fatalf("expected identical states to fail, got %v", err)
+	}
+}
+
+func TestValidateAppendEvents(t *testing.T) {
+	if err := validateAppendEvents([]*pb.Event{
+		{
+			Id:        "1",
+			EventType: "Created",
+			Transition: &pb.Transition{
+				Name:      "Created",
+				FromState: "draft",
+				ToState:   "published",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("validateAppendEvents failed: %v", err)
+	}
+
+	if err := validateAppendEvents([]*pb.Event{{}}); err == nil {
+		t.Fatalf("expected missing transition to fail")
 	}
 }
 

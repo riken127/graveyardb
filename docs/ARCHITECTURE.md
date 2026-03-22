@@ -4,6 +4,8 @@
 
 GraveyardDB uses a layered Rust architecture to separate API handling, routing, domain logic, and storage concerns. The current layout favors explicit boundaries over hidden framework magic.
 
+The core lifecycle is `event -> transition -> snapshot`. Transition metadata is mandatory on every event and is validated before writes are accepted.
+
 ## System Context
 
 The system is consumed by SDKs through gRPC.
@@ -19,7 +21,7 @@ graph LR
 The application is divided into several logical modules:
 
 * API Layer (`src/grpc`): gRPC requests, proto/domain conversion, auth interception, and snapshot endpoints.
-* Pipeline Layer (`src/pipeline`): ownership routing, sharded workers, and write serialization.
+* Pipeline Layer (`src/pipeline`): ownership routing, transition validation, sharded workers, and write serialization.
 * Domain Layer (`src/domain`): core event and schema types, conversions, and validation.
 * Storage Layer (`src/storage`): event store and snapshot store implementations for RocksDB, ScyllaDB, and in-memory tests.
 
@@ -41,12 +43,35 @@ graph TD
 
 ### Append Event
 
-1. SDK sends `AppendEventRequest` with a stream ID, batch of events, and expected version.
+1. SDK sends `AppendEventRequest` with a stream ID, batch of events, expected version, and transition metadata on every event.
 2. API converts proto events into domain events and preserves the stream ID.
-3. Pipeline checks cluster ownership and either processes locally or forwards the request.
+3. Pipeline validates transition metadata and checks cluster ownership before it accepts the write.
 4. Worker shards serialize writes for the stream.
 5. Storage persists the event and advances the stream version.
 6. API returns success or a gRPC error to the SDK.
+
+Example append payload:
+
+```json
+{
+  "stream_id": "user-123",
+  "expected_version": -1,
+  "events": [
+    {
+      "id": "evt-001",
+      "event_type": "UserCreated",
+      "transition": {
+        "name": "create_user",
+        "from_state": "none",
+        "to_state": "active"
+      },
+      "payload": {
+        "name": "Ada"
+      }
+    }
+  ]
+}
+```
 
 ```mermaid
 sequenceDiagram
@@ -57,6 +82,7 @@ sequenceDiagram
 
     C->>A: AppendEvent(StreamID, Events)
     A->>P: Dispatch Command
+    P->>P: Validate Transition Metadata
     P->>S: Load Stream Metadata
     S-->>P: Metadata (Version)
     P->>P: Validate Version

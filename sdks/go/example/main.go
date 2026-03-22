@@ -32,6 +32,11 @@ func main() {
 			EventType: "TestEvent",
 			Payload:   []byte("Hello Go SDK"),
 			Timestamp: uint64(time.Now().UnixMilli()),
+			Transition: &pb.Transition{
+				Name:      "TestEventCreated",
+				FromState: "draft",
+				ToState:   "published",
+			},
 		},
 	}
 

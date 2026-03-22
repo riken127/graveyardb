@@ -2,7 +2,9 @@
 
 ## Purpose
 
-GraveyardDB is an event store for append-only streams. The current codebase focuses on predictable writes, stream reads, schema registration, snapshots, and local failover.
+GraveyardDB is an event store for append-only streams. The current codebase focuses on predictable writes, stream reads, schema registration, transitions, snapshots, and local failover.
+
+The core lifecycle is `event -> transition -> snapshot`. Every event must include transition metadata (`name`, `from_state`, `to_state`); appends without it are rejected.
 
 The primary goals are:
 
@@ -13,7 +15,7 @@ The primary goals are:
 ## Scope
 
 ### In Scope
-* Event appending through gRPC.
+* Event appending through gRPC with required transition metadata on every event.
 * Event reading through gRPC.
 * Schema upsert and fetch.
 * Server-side schema validation (primitives, enums, arrays, nested schemas, and field constraints).

@@ -28,8 +28,23 @@ message Event {
     uint64 timestamp = 4;
     
     // Key-Value metadata for context (e.g., TraceID, CausationID, SagaStep).
-    // This allows tracking transitions and provenance without modifying the payload.
     map<string, string> metadata = 5;
+
+    // Mandatory transition semantics for this event.
+    // Every event must define the state movement it represents.
+    Transition transition = 6;
+}
+
+/**
+ * State transition represented by an event.
+ */
+message Transition {
+    // Transition name (e.g., "user.activated").
+    string name = 1;
+    // Previous state before this event was applied.
+    string from_state = 2;
+    // Next state after this event was applied.
+    string to_state = 3;
 }
 
 /**

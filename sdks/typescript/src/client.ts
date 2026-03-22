@@ -2,7 +2,7 @@ import * as grpc from '@grpc/grpc-js';
 import { readFileSync } from 'fs';
 import { EventStoreClient as GrpcClient } from './proto/eventstore';
 import { EventStoreConfig, defaultConfig } from './config';
-import { Event, AppendEventRequest, GetEventsRequest, UpsertSchemaRequest, UpsertSchemaResponse, AppendEventResponse } from './proto/eventstore';
+import { Event, AppendEventRequest, GetEventsRequest, UpsertSchemaRequest, UpsertSchemaResponse, AppendEventResponse, Transition } from './proto/eventstore';
 import { SchemaGenerator } from './schema/generator';
 
 /**
@@ -27,6 +27,44 @@ export function normalizeExpectedVersion(expectedVersion: number): number {
     }
 
     return expectedVersion;
+}
+
+function validateTransitionText(value: unknown, fieldName: string, eventIndex: number): string {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        throw new Error(`events[${eventIndex}].transition.${fieldName} must be a non-empty string`);
+    }
+
+    return value;
+}
+
+export function validateEventTransition(event: Event, eventIndex = 0): Transition {
+    const transition = (event as Event & { transition?: Transition }).transition;
+
+    if (!transition) {
+        throw new Error(`events[${eventIndex}].transition is required`);
+    }
+
+    const fromState = validateTransitionText(transition.fromState, 'fromState', eventIndex);
+    const toState = validateTransitionText(transition.toState, 'toState', eventIndex);
+    if (fromState === toState) {
+        throw new Error(`events[${eventIndex}].transition.fromState and toState must be different`);
+    }
+
+    return {
+        name: validateTransitionText(transition.name, 'name', eventIndex),
+        fromState,
+        toState
+    };
+}
+
+function validateAppendEvents(events: Event[]): void {
+    events.forEach((event, index) => {
+        if (!event) {
+            throw new Error(`events[${index}] must not be empty`);
+        }
+
+        validateEventTransition(event, index);
+    });
 }
 
 export class EventStoreClient {
@@ -75,6 +113,8 @@ export class EventStoreClient {
     }
 
     async appendEvent(streamId: string, events: Event[], expectedVersion: number = ANY_VERSION): Promise<boolean> {
+        validateAppendEvents(events);
+
         const req: AppendEventRequest = {
             streamId,
             events,

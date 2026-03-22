@@ -8,6 +8,7 @@ import com.eventstore.client.model.EventStoreGrpc;
 import com.eventstore.client.model.GetEventsRequest;
 import com.eventstore.client.model.GetSnapshotRequest;
 import com.eventstore.client.model.SaveSnapshotRequest;
+import com.eventstore.client.model.Transition;
 import com.eventstore.client.model.UpsertSchemaRequest;
 import com.eventstore.client.model.UpsertSchemaResponse;
 import com.eventstore.client.annotations.GraveyardEntity;
@@ -79,6 +80,7 @@ public class EventStoreClient {
      * @return {@code true} if successful; {@code false} if a concurrency conflict or other error occurred.
      */
     public boolean appendEvent(String streamId, List<Event> events, long expectedVersion) {
+        validateAppendEvents(events);
         long normalizedExpectedVersion = normalizeExpectedVersion(expectedVersion);
         AppendEventRequest request = AppendEventRequest.newBuilder()
                 .setStreamId(streamId)
@@ -99,6 +101,7 @@ public class EventStoreClient {
      * @return A {@link ListenableFuture} representing the pending response.
      */
     public ListenableFuture<AppendEventResponse> appendEventAsync(String streamId, List<Event> events, long expectedVersion) {
+        validateAppendEvents(events);
         long normalizedExpectedVersion = normalizeExpectedVersion(expectedVersion);
         AppendEventRequest request = AppendEventRequest.newBuilder()
                 .setStreamId(streamId)
@@ -196,6 +199,40 @@ public class EventStoreClient {
 
         throw new IllegalArgumentException(
                 "expectedVersion must be EventStoreClient.ANY_VERSION (-1) or a non-negative stream version");
+    }
+
+    private static void validateAppendEvents(List<Event> events) {
+        Objects.requireNonNull(events, "events");
+
+        for (int index = 0; index < events.size(); index++) {
+            Event event = Objects.requireNonNull(events.get(index), "events[" + index + "]");
+            if (!event.hasTransition()) {
+                throw new IllegalArgumentException("events[" + index + "].transition is required");
+            }
+            validateTransition(event.getTransition(), index);
+        }
+    }
+
+    private static void validateTransition(Transition transition, int eventIndex) {
+        if (transition == null) {
+            throw new IllegalArgumentException("events[" + eventIndex + "].transition is required");
+        }
+        String name = transition.getName() == null ? "" : transition.getName().trim();
+        String fromState = transition.getFromState() == null ? "" : transition.getFromState().trim();
+        String toState = transition.getToState() == null ? "" : transition.getToState().trim();
+
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("events[" + eventIndex + "].transition.name must be a non-empty string");
+        }
+        if (fromState.isEmpty()) {
+            throw new IllegalArgumentException("events[" + eventIndex + "].transition.from_state must be a non-empty string");
+        }
+        if (toState.isEmpty()) {
+            throw new IllegalArgumentException("events[" + eventIndex + "].transition.to_state must be a non-empty string");
+        }
+        if (fromState.equals(toState)) {
+            throw new IllegalArgumentException("events[" + eventIndex + "].transition.from_state and to_state must be different");
+        }
     }
 }
 

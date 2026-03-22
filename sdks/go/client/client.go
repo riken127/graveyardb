@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -104,6 +105,44 @@ func encodeExpectedVersion(expectedVersion int64) (int64, error) {
 	}
 }
 
+func validateTransition(transition *pb.Transition, eventIndex int) error {
+	if transition == nil {
+		return fmt.Errorf("events[%d].transition is required", eventIndex)
+	}
+
+	name := strings.TrimSpace(transition.Name)
+	fromState := strings.TrimSpace(transition.FromState)
+	toState := strings.TrimSpace(transition.ToState)
+
+	if name == "" {
+		return fmt.Errorf("events[%d].transition.name must be a non-empty string", eventIndex)
+	}
+	if fromState == "" {
+		return fmt.Errorf("events[%d].transition.from_state must be a non-empty string", eventIndex)
+	}
+	if toState == "" {
+		return fmt.Errorf("events[%d].transition.to_state must be a non-empty string", eventIndex)
+	}
+	if fromState == toState {
+		return fmt.Errorf("events[%d].transition.from_state and to_state must be different", eventIndex)
+	}
+
+	return nil
+}
+
+func validateAppendEvents(events []*pb.Event) error {
+	for i, event := range events {
+		if event == nil {
+			return fmt.Errorf("events[%d] must not be nil", i)
+		}
+		if err := validateTransition(event.GetTransition(), i); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // AppendEvent appends a batch of events to a specific stream.
 //
 // streamID: The unique identifier of the stream.
@@ -118,6 +157,10 @@ func encodeExpectedVersion(expectedVersion int64) (int64, error) {
 func (c *Client) AppendEvent(ctx context.Context, streamID string, events []*pb.Event, expectedVersion int64) (bool, error) {
 	ctx, cancel := c.unaryContext(ctx)
 	defer cancel()
+
+	if err := validateAppendEvents(events); err != nil {
+		return false, err
+	}
 
 	encodedExpectedVersion, err := encodeExpectedVersion(expectedVersion)
 	if err != nil {

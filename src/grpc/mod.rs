@@ -251,6 +251,15 @@ fn status_from_pipeline_error(error: PipelineError) -> Status {
             "schema validation failed for stream {}, event {}: {}",
             stream_id, event_type, details
         )),
+        PipelineError::TransitionValidation {
+            stream_id,
+            event_type,
+            event_index,
+            details,
+        } => Status::invalid_argument(format!(
+            "transition validation failed for stream {}, event {} at index {}: {}",
+            stream_id, event_type, event_index, details
+        )),
         PipelineError::Storage(msg) => Status::internal(msg),
     }
 }
@@ -275,5 +284,17 @@ mod tests {
         });
 
         assert_eq!(status.code(), Code::Aborted);
+    }
+
+    #[test]
+    fn maps_transition_validation_to_invalid_argument() {
+        let status = status_from_pipeline_error(PipelineError::TransitionValidation {
+            stream_id: "stream-1".to_string(),
+            event_type: "UserCreated".to_string(),
+            event_index: 0,
+            details: "transition name must not be empty".to_string(),
+        });
+
+        assert_eq!(status.code(), Code::InvalidArgument);
     }
 }

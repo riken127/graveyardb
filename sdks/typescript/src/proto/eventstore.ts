@@ -40,16 +40,28 @@ export interface Event {
   payload: Buffer;
   /** Timestamp of when the event was created/appended (server side or client side). */
   timestamp: number;
-  /**
-   * Key-Value metadata for context (e.g., TraceID, CausationID, SagaStep).
-   * This allows tracking transitions and provenance without modifying the payload.
-   */
+  /** Key-Value metadata for context (e.g., TraceID, CausationID, SagaStep). */
   metadata: { [key: string]: string };
+  /**
+   * Mandatory transition semantics for this event.
+   * Every event must define the state movement it represents.
+   */
+  transition?: Transition | undefined;
 }
 
 export interface Event_MetadataEntry {
   key: string;
   value: string;
+}
+
+/** State transition represented by an event. */
+export interface Transition {
+  /** Transition name (e.g., "user.activated"). */
+  name: string;
+  /** Previous state before this event was applied. */
+  fromState: string;
+  /** Next state after this event was applied. */
+  toState: string;
 }
 
 /** Request to append a batch of events to a specific stream. */
@@ -212,7 +224,7 @@ export interface GetSnapshotResponse {
 }
 
 function createBaseEvent(): Event {
-  return { id: "", eventType: "", payload: Buffer.alloc(0), timestamp: 0, metadata: {} };
+  return { id: "", eventType: "", payload: Buffer.alloc(0), timestamp: 0, metadata: {}, transition: undefined };
 }
 
 export const Event = {
@@ -232,6 +244,9 @@ export const Event = {
     Object.entries(message.metadata).forEach(([key, value]) => {
       Event_MetadataEntry.encode({ key: key as any, value }, writer.uint32(42).fork()).ldelim();
     });
+    if (message.transition !== undefined) {
+      Transition.encode(message.transition, writer.uint32(50).fork()).ldelim();
+    }
     return writer;
   },
 
@@ -280,6 +295,13 @@ export const Event = {
             message.metadata[entry5.key] = entry5.value;
           }
           continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.transition = Transition.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -301,6 +323,7 @@ export const Event = {
           return acc;
         }, {})
         : {},
+      transition: isSet(object.transition) ? Transition.fromJSON(object.transition) : undefined,
     };
   },
 
@@ -327,6 +350,9 @@ export const Event = {
         });
       }
     }
+    if (message.transition !== undefined) {
+      obj.transition = Transition.toJSON(message.transition);
+    }
     return obj;
   },
 
@@ -345,6 +371,9 @@ export const Event = {
       }
       return acc;
     }, {});
+    message.transition = (object.transition !== undefined && object.transition !== null)
+      ? Transition.fromPartial(object.transition)
+      : undefined;
     return message;
   },
 };
@@ -419,6 +448,95 @@ export const Event_MetadataEntry = {
     const message = createBaseEvent_MetadataEntry();
     message.key = object.key ?? "";
     message.value = object.value ?? "";
+    return message;
+  },
+};
+
+function createBaseTransition(): Transition {
+  return { name: "", fromState: "", toState: "" };
+}
+
+export const Transition = {
+  encode(message: Transition, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.fromState !== "") {
+      writer.uint32(18).string(message.fromState);
+    }
+    if (message.toState !== "") {
+      writer.uint32(26).string(message.toState);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): Transition {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTransition();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.fromState = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.toState = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): Transition {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      fromState: isSet(object.fromState) ? globalThis.String(object.fromState) : "",
+      toState: isSet(object.toState) ? globalThis.String(object.toState) : "",
+    };
+  },
+
+  toJSON(message: Transition): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.fromState !== "") {
+      obj.fromState = message.fromState;
+    }
+    if (message.toState !== "") {
+      obj.toState = message.toState;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<Transition>, I>>(base?: I): Transition {
+    return Transition.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Transition>, I>>(object: I): Transition {
+    const message = createBaseTransition();
+    message.name = object.name ?? "";
+    message.fromState = object.fromState ?? "";
+    message.toState = object.toState ?? "";
     return message;
   },
 };

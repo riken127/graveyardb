@@ -45,6 +45,15 @@ pub enum PipelineError {
         event_type: String,
         details: String,
     },
+    #[error(
+        "transition validation failed for stream {stream_id}, event {event_type}, index {event_index}: {details}"
+    )]
+    TransitionValidation {
+        stream_id: String,
+        event_type: String,
+        event_index: usize,
+        details: String,
+    },
     #[error("storage error: {0}")]
     Storage(String),
 }
@@ -187,7 +196,16 @@ impl EventPipeline {
         }
 
         // Validate payloads when schemas exist for the event type.
-        for event in &events {
+        for (event_index, event) in events.iter().enumerate() {
+            if let Err(details) = event.transition.validate() {
+                return Err(PipelineError::TransitionValidation {
+                    stream_id: stream_id.to_string(),
+                    event_type: event.event_type.to_string(),
+                    event_index,
+                    details,
+                });
+            }
+
             let type_str = event.event_type.to_string();
             if let Ok(Some(schema)) = self.storage.get_schema(&type_str).await {
                 if let Err(errs) = crate::domain::schema::validation::validate_event_payload(
@@ -277,7 +295,7 @@ fn format_validation_errors(errors: &[ValidationError]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{EventPipeline, PipelineError};
-    use crate::domain::events::event::Event;
+    use crate::domain::events::event::{Event, Transition};
     use crate::domain::events::event_kind::{EventKind, EventPayload};
     use crate::domain::schema::model::Schema;
     use crate::storage::event_store::{EventStore, EventStoreError};
@@ -323,7 +341,12 @@ mod tests {
             false,
         );
 
-        let event = Event::new("stream-1", EventKind::Internal, EventPayload(vec![1]));
+        let event = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            EventPayload(vec![1]),
+            Transition::new("created", "none", "active"),
+        );
         let result = pipeline.append_event("stream-1", vec![event], -2).await;
 
         assert!(matches!(
@@ -342,7 +365,12 @@ mod tests {
             false,
         );
 
-        let event = Event::new("stream-1", EventKind::Internal, EventPayload(vec![1]));
+        let event = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            EventPayload(vec![1]),
+            Transition::new("created", "none", "active"),
+        );
         let result = pipeline
             .append_event_as_owner("stream-1", vec![event], 0)
             .await;
@@ -353,6 +381,32 @@ mod tests {
                 expected: 0,
                 actual: 1
             })
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_transition() {
+        let pipeline = EventPipeline::new(
+            Arc::new(ConcurrencyStore),
+            vec!["127.0.0.1:50051".to_string()],
+            0,
+            None,
+            false,
+        );
+
+        let event = Event::new(
+            "stream-1",
+            EventKind::Internal,
+            EventPayload(vec![1]),
+            Transition::new("", "none", "active"),
+        );
+        let result = pipeline
+            .append_event_as_owner("stream-1", vec![event], 0)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(PipelineError::TransitionValidation { .. })
         ));
     }
 }

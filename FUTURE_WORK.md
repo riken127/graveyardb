@@ -4,7 +4,7 @@ GraveyardDB currently exposes the core event-store path, but it is still being h
 
 ## Current Surface
 
-* Append and read stream APIs.
+* Append and read stream APIs with required transition metadata on appends.
 * Schema upsert and fetch APIs.
 * Snapshot save and fetch APIs.
 * Hybrid RocksDB and ScyllaDB storage.
@@ -16,7 +16,7 @@ GraveyardDB currently exposes the core event-store path, but it is still being h
 * Standardized `expected_version` semantics (`-1` sentinel) across server and SDKs.
 * Added structured append error mapping for better gRPC status responses.
 * Added `SCHEMA_VALIDATION_HARD_FAIL` toggle for strict schema enforcement.
-* Preserved custom `event_type` strings end-to-end (proto, pipeline, storage) for correct schema lookup.
+* Preserved custom `event_type` strings end-to-end (proto, pipeline, storage) alongside mandatory transition metadata for correct schema lookup.
 * Expanded server-side schema validation to cover regex, enums, arrays, nested sub-schemas, and non-null checks.
 * Added deployment guardrails: `REQUIRE_TLS` and `REQUIRE_AUTH`.
 * Made OpenTelemetry startup opt-in (`OTEL_ENABLED`) with optional fail-fast (`OTEL_FAIL_FAST`).
@@ -42,7 +42,7 @@ GraveyardDB currently exposes the core event-store path, but it is still being h
 
 ### 5. Query and Projection Support
 * Keep projections in a separate read-model component rather than inside the core store.
-* Document the event-contract expectations for downstream consumers.
+* Document the transition contract and downstream event expectations for consumers.
 
 ### 6. Security
 * Add stronger TLS defaults beyond optional startup guards.

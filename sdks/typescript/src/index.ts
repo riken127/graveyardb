@@ -1,4 +1,4 @@
-export { EventStoreClient, ANY_VERSION, normalizeExpectedVersion } from './client';
+export { EventStoreClient, ANY_VERSION, normalizeExpectedVersion, validateEventTransition } from './client';
 export type { EventStoreConfig } from './config';
 export { defaultConfig } from './config';
 export { GraveyardEntity, ENTITY_METADATA_KEY } from './decorators/entity';

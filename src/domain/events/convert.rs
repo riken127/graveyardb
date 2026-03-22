@@ -1,11 +1,40 @@
 use crate::api as proto;
-use crate::domain::events::event::Event;
+use crate::domain::events::event::{Event, Transition};
 use crate::domain::events::event_kind::{EventId, EventKind, EventPayload, Timestamp};
+
+impl TryFrom<proto::Transition> for Transition {
+    type Error = String;
+
+    fn try_from(proto_transition: proto::Transition) -> Result<Self, Self::Error> {
+        let transition = Transition::new(
+            proto_transition.name,
+            proto_transition.from_state,
+            proto_transition.to_state,
+        );
+        transition.validate()?;
+        Ok(transition)
+    }
+}
+
+impl From<Transition> for proto::Transition {
+    fn from(transition: Transition) -> Self {
+        proto::Transition {
+            name: transition.name,
+            from_state: transition.from_state,
+            to_state: transition.to_state,
+        }
+    }
+}
 
 impl TryFrom<proto::Event> for Event {
     type Error = String;
 
     fn try_from(proto_event: proto::Event) -> Result<Self, Self::Error> {
+        let transition = proto_event
+            .transition
+            .ok_or_else(|| "event.transition is required".to_string())?
+            .try_into()?;
+
         // Preserve unknown/custom event type strings so schema lookups remain accurate.
         let event_type = EventKind::from_type_name(&proto_event.event_type);
 
@@ -17,6 +46,7 @@ impl TryFrom<proto::Event> for Event {
             event_type,
             payload: EventPayload(proto_event.payload),
             timestamp: Timestamp(proto_event.timestamp),
+            transition,
             metadata: proto_event.metadata,
         })
     }
@@ -30,6 +60,7 @@ impl From<Event> for proto::Event {
             payload: domain_event.payload.0,
             timestamp: domain_event.timestamp.0,
             metadata: domain_event.metadata,
+            transition: Some(domain_event.transition.into()),
         }
     }
 }
