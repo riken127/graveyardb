@@ -1,5 +1,11 @@
 import { ANY_VERSION, EventStoreClient, GraveyardEntity, GraveyardField, SchemaGenerator, normalizeExpectedVersion } from '../src';
 
+@GraveyardEntity("profile_details")
+class ProfileDetails {
+    @GraveyardField({ minLength: 2 })
+    city!: string;
+}
+
 @GraveyardEntity("user_test")
 class UserTest {
     @GraveyardField({ minLength: 3 })
@@ -7,6 +13,15 @@ class UserTest {
 
     @GraveyardField({ min: 18 })
     age!: number;
+
+    @GraveyardField()
+    profile!: ProfileDetails;
+}
+
+@GraveyardEntity("array_user")
+class ArrayUser {
+    @GraveyardField()
+    tags!: string[];
 }
 
 describe('SchemaGenerator', () => {
@@ -17,6 +32,12 @@ describe('SchemaGenerator', () => {
         expect(schema.fields['username'].constraints?.minLength).toBe(3);
         expect(schema.fields['age']).toBeDefined();
         expect(schema.fields['age'].constraints?.minValue).toBe(18);
+        expect(schema.fields['profile'].fieldType?.subSchema?.name).toBe("profile_details");
+        expect(schema.fields['profile'].fieldType?.subSchema?.fields['city']).toBeDefined();
+    });
+
+    it('should reject array fields until the generator can infer their element type', () => {
+        expect(() => SchemaGenerator.generate(ArrayUser)).toThrow(/array/i);
     });
 });
 

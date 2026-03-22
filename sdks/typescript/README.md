@@ -24,10 +24,14 @@ const client = new EventStoreClient({
   host: 'localhost',
   port: 50051,
   useTls: process.env.NODE_ENV === 'production',
+  tlsCaFile: process.env.EVENTSTORE_CA_FILE,
   timeoutMs: 2000,
   authToken: process.env.EVENTSTORE_TOKEN
 });
 ```
+
+`ANY_VERSION` is the sentinel `-1` for optimistic concurrency bypass. Pass a
+non-negative integer when you want the server to enforce an exact version match.
 
 ## Usage
 
@@ -46,6 +50,10 @@ class UserProfile {
 }
 ```
 
+The schema generator currently infers primitives from decorator metadata and
+supports nested decorated classes. Arrays, generics, and other erased runtime
+types are rejected so the SDK does not silently publish the wrong schema.
+
 ### Register Schema
 
 ```typescript
@@ -59,6 +67,9 @@ const result = await client.appendEvent('stream-1', [
   { id: '1', eventType: 'Created', payload: Buffer.from('...'), timestamp: Date.now() }
 ], ANY_VERSION);
 ```
+
+If you need optimistic concurrency, replace `ANY_VERSION` with the current
+stream version returned by your read path.
 
 ## Public Imports
 
@@ -84,3 +95,10 @@ npm run build
 ```
 
 Generated files live in `dist/` and should be treated as build output.
+
+## TLS Notes
+
+- Set `useTls: true` for production deployments.
+- If the server uses a private CA, point `tlsCaFile` at the PEM bundle to trust
+  that certificate chain.
+- `authToken` is sent as `authorization: Bearer <token>` on outgoing requests.

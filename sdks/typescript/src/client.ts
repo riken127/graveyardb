@@ -1,9 +1,16 @@
 import * as grpc from '@grpc/grpc-js';
+import { readFileSync } from 'fs';
 import { EventStoreClient as GrpcClient } from './proto/eventstore';
 import { EventStoreConfig, defaultConfig } from './config';
 import { Event, AppendEventRequest, GetEventsRequest, UpsertSchemaRequest, UpsertSchemaResponse, AppendEventResponse } from './proto/eventstore';
 import { SchemaGenerator } from './schema/generator';
 
+/**
+ * Sentinel value that disables optimistic concurrency checks.
+ *
+ * Pass this constant when you want the server to append regardless of the
+ * current stream version. Any non-negative integer requires an exact match.
+ */
 export const ANY_VERSION = -1 as const;
 
 export function normalizeExpectedVersion(expectedVersion: number): number {
@@ -30,11 +37,27 @@ export class EventStoreClient {
         this.config = { ...defaultConfig, ...config };
 
         const address = `${this.config.host}:${this.config.port}`;
-        const credentials = this.config.useTls
-            ? grpc.credentials.createSsl()
-            : grpc.credentials.createInsecure();
+        const credentials = this.createCredentials();
 
         this.client = new GrpcClient(address, credentials);
+    }
+
+    private createCredentials(): grpc.ChannelCredentials {
+        if (!this.config.useTls) {
+            return grpc.credentials.createInsecure();
+        }
+
+        let rootCerts: Buffer | null = null;
+        if (this.config.tlsCaFile) {
+            try {
+                rootCerts = readFileSync(this.config.tlsCaFile);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                throw new Error(`Failed to read TLS CA file ${this.config.tlsCaFile}: ${message}`);
+            }
+        }
+
+        return grpc.credentials.createSsl(rootCerts);
     }
 
     private getDeadline(): Date {
