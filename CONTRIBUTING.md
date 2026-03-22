@@ -1,41 +1,42 @@
-# Contributing to graveyar_db
+# Contributing to GraveyardDB
 
-Thank you for your interest in contributing to `graveyar_db`!
+Thank you for contributing to GraveyardDB.
+
+## Working Rules
+
+* Keep commits small and focused.
+* Use conventional commits, for example `docs: clarify release process` or `chore(ci): add release check`.
+* Include a short commit body when the change needs context.
+* Keep the repository clean. `git status --short` should be empty before you commit and after you finish a task.
+* Do not commit generated outputs such as `target/`, `sdks/java/target/`, `sdks/typescript/dist/`, `sdks/typescript/node_modules/`, or local RocksDB files in `data/rocksdb/`.
 
 ## Getting Started
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/riken127/graveyar_db.git
-    cd graveyar_db
-    ```
+1. Install the required tools:
+   * Rust stable
+   * `protoc`
+   * `make` for convenience commands
+2. Run the relevant checks before you ask for review:
+   * `cargo test`
+   * `cargo clippy -- -D warnings`
+   * `cargo fmt --all -- --check`
+   * `cd sdks/go && go test ./...`
+   * `cd sdks/typescript && npm test -- --runInBand`
+   * `cd sdks/java && mvn -q test` when a backend is available for the integration test
 
-2.  **Install Dependencies**:
-    - Rust (latest stable)
-    - `protoc` (Protocol Buffers compiler)
-    - `make` (optional, for convenience commands)
+## Release Flow
 
-3.  **Run Tests**:
-    ```bash
-    cargo test
-    # or
-    make test
-    ```
+* Update `CHANGELOG.md` under `Unreleased`.
+* Cut tagged releases as `vX.Y.Z`.
+* Keep release notes short, factual, and based on conventional commits.
 
-## Development Guidelines
+## Pull Requests
 
-- **Code Style**: We use `rustfmt` for formatting. Please run `make fmt` before committing.
-- **Linting**: We use `clippy` to catch common mistakes. Ensure `make lint` passes.
-- **Commits**: Write clear, concise commit messages.
+1. Make the change.
+2. Run the relevant checks.
+3. Verify no generated artifacts are staged.
+4. Open the PR or, if you are working directly on `main`, commit with a clear conventional-commit message and description.
 
-## Submitting a Pull Request
+## Note on Shared Work
 
-1.  Fork the repository and branch off `main`.
-2.  Make your changes.
-3.  Add tests for any new functionality.
-4.  Run `make all` to ensure everything is correct.
-5.  Push your branch and open a PR.
-
-## Concurrent Development Note
-
-Please coordinate with the team if you are working on core shared components to avoid conflicts.
+If you are touching a shared component, leave a short note in your commit body or handoff so the next person knows what changed and why.

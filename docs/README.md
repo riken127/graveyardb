@@ -1,14 +1,14 @@
-# graveyar_db Documentation
+# GraveyardDB Documentation
 
-Welcome to the documentation for **graveyar_db**, a high-performance, resilient event store built in Rust.
+This directory contains the scope and architecture notes for the current repository state.
 
 ## Documentation Structure
 
-This directory contains detailed information about the project's purpose, scope, and architecture.
-
-- **[Scope & Purpose](SCOPE.md)**: Defines what the project is, what it aims to solve, and its boundaries.
-- **[Architecture](ARCHITECTURE.md)**: Detailed overview of the system architecture, including diagrams of the components and data flow.
+* [Scope and Purpose](SCOPE.md): What the project currently does and what is still out of scope.
+* [Architecture](ARCHITECTURE.md): Current module layout, data flow, and operational notes.
+* [Release Process](../RELEASE.md): Semantic versioning, conventional commits, and changelog flow.
+* [Changelog](../CHANGELOG.md): Release notes and unreleased changes.
 
 ## Getting Started
 
-Refer to the root [README](../README.md) for build and run instructions.
+Refer to the root [README](../README.md) for setup and local run instructions.

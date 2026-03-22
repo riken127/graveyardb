@@ -2,30 +2,30 @@
 
 ## Overview
 
-`graveyar_db` follows a clean, layered architecture to separate concerns such as network communication, business logic, and data storage. This ensures maintainability and allows for pluggable components (like storage engines).
+GraveyardDB uses a layered Rust architecture to separate API handling, routing, domain logic, and storage concerns. The current layout favors explicit boundaries over hidden framework magic.
 
 ## System Context
 
-The system interacts primarily with simple SDKs (Producers/Consumers) via gRPC.
+The system is consumed by SDKs through gRPC.
 
 ```mermaid
 graph LR
-    User[SDK Application] -- gRPC --> System[graveyar_db]
+    User[SDK Application] -- gRPC --> System[GraveyardDB]
     System -- Persists to --> Storage[Storage Engine\n(RocksDB/ScyllaDB)]
 ```
 
 ## Container Diagram
 
-The application is divided into several logical modules ("containers" in the C4 sense, though they are Rust modules):
+The application is divided into several logical modules:
 
-- **API Layer (`src/grpc`)**: Handles gRPC requests, deserialization, and basic validation.
-- **Pipeline Layer (`src/pipeline`)**: The core business logic. Distributes requests, enforces concurrency rules, and manages the flow.
-- **Domain Layer (`src/domain`)**: Contains core types, event definitions, and errors.
-- **Storage Layer (`src/storage`)**: interacting with the underlying database.
+* API Layer (`src/grpc`): gRPC requests, proto/domain conversion, auth interception, and snapshot endpoints.
+* Pipeline Layer (`src/pipeline`): ownership routing, sharded workers, and write serialization.
+* Domain Layer (`src/domain`): core event and schema types, conversions, and validation.
+* Storage Layer (`src/storage`): event store and snapshot store implementations for RocksDB, ScyllaDB, and in-memory tests.
 
 ```mermaid
 graph TD
-    subgraph "graveyar_db"
+    subgraph "GraveyardDB"
         API[API Module\n(gRPC)]
         Pipeline[Pipeline Module]
         Storage[Storage Interface]
@@ -41,12 +41,12 @@ graph TD
 
 ### Append Event
 
-1. **SDK** sends `AppendEventRequest` (StreamID, Events, ExpectedVersion).
-2. **API** converts proto message to Domain Event.
-3. **Pipeline** verifies StreamID and ExpectedVersion.
-4. **Storage** writes the event to the write-ahead log / database.
-5. **Storage** updates the Stream's current version.
-6. **API** returns success/failure to SDK.
+1. SDK sends `AppendEventRequest` with a stream ID, batch of events, and expected version.
+2. API converts proto events into domain events and preserves the stream ID.
+3. Pipeline checks cluster ownership and either processes locally or forwards the request.
+4. Worker shards serialize writes for the stream.
+5. Storage persists the event and advances the stream version.
+6. API returns success or a gRPC error to the SDK.
 
 ```mermaid
 sequenceDiagram
@@ -65,3 +65,10 @@ sequenceDiagram
     P-->>A: Result
     A-->>C: Response
 ```
+
+## Operational Notes
+
+* TLS is optional and configured at startup when certificate paths are provided.
+* Token-based auth is enforced through a gRPC interceptor when an auth token is configured.
+* Cluster ownership is static and derived from `CLUSTER_NODES`; it is not a live membership protocol yet.
+* Snapshot RPCs bypass the append pipeline and go directly to the snapshot store.

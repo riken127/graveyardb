@@ -1,39 +1,48 @@
 # Future Work & Roadmap
 
-GraveyardDB has reached a stable MVP state with:
-- **Hybrid Storage**: ScyllaDB (Primary) + RocksDB (Local).
-- **Cluster**: Distributed forwarding with Consistent Hashing.
-- **Worker Pool**: High-concurrency local event processing (actor model).
-- **SDKs**: Java (Schema support) and Go.
+GraveyardDB currently exposes the core event-store path, but it is still being hardened for production use. This file is the real backlog, not a completion claim.
 
-## 🚀 Near-Term Improvements
+## Current Surface
 
-### 1. Telemetry (Deferred)
-- **Objective**: Re-enable OpenTelemetry integration.
-- **Challenge**: Dependency churn in `opentelemetry` Rust crate (0.24 vs 0.27 vs 0.31).
-- **Action**: Wait for stabilization or pin exact compatible versions for `opentelemetry`, `tracing-opentelemetry`, and `opentelemetry-otlp`.
+* Append and read stream APIs.
+* Schema upsert and fetch APIs.
+* Snapshot save and fetch APIs.
+* Hybrid RocksDB and ScyllaDB storage.
+* Deterministic cluster forwarding with a static node list.
+* Go, Java, and TypeScript SDKs.
+
+## Near-Term Hardening
+
+### 1. Observability
+* Re-enable OpenTelemetry with pinned compatible versions.
+* Add metrics for request counts, latency, storage fallback, and forwarding.
 
 ### 2. Cluster Membership
-- **Objective**: Dynamic node discovery.
-- **Current**: Static list in `CLUSTER_NODES`.
-- **Action**: Implement Gossip protocol (SWIM) or integration with Etcd/Consul.
+* Replace `CLUSTER_NODES` with discovery or membership updates.
+* Rebalance stream ownership when the cluster topology changes.
 
-### 3. Snapshotting
-- **Objective**: Faster replay for long streams.
-- **Action**: Implement periodic snapshots of aggregate state to Scylla/S3.
+### 3. Snapshotting and Replay
+* Make snapshot cadence configurable.
+* Use snapshots to shorten replay for long streams.
 
-### 4. Compaction
-- **Objective**: Clean up old events or soft deletions.
-- **Action**: Implement retention policies (TTL).
+### 4. Retention and Compaction
+* Define TTL or retention rules for old events and schema history.
+* Make soft deletion and cleanup policy explicit.
 
-### 5. Advanced Querying
-- **Objective**: Projections and Read Models.
-- **Action**: Implement a "Projection Engine" that consumes the stream and updates read-optimized views (e.g., Postgres, ElasticSearch).
+### 5. Query and Projection Support
+* Keep projections in a separate read-model component rather than inside the core store.
+* Document the event-contract expectations for downstream consumers.
 
-## 🛡 Security
-- Enable TLS for gRPC (Server-side and mTLS).
-- Authentication via JWT/OAuth2.
+### 6. Security
+* Add stronger TLS defaults and clearer certificate guidance.
+* Replace the current token hook with a fuller authN/authZ model.
 
-## 🧪 Testing
-- Write property-based tests (`proptest`) for the EventStore trait.
-- Run Jepsen tests to verify linearizability during network partitions.
+### 7. Testing
+* Add property-based tests for the event store trait.
+* Add multi-node and failure-focused tests for partitions and failover.
+
+## Release Hygiene
+
+* Every release should come from a tagged commit.
+* Every release should have a changelog entry.
+* Release notes should be assembled from conventional commits.

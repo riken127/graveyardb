@@ -1,6 +1,6 @@
 # Performance Benchmarks
 
-This document details the performance characteristics of GraveyardDB under various conditions.
+This document records historical local measurements for GraveyardDB. These numbers are useful for regression tracking, but they are not production SLAs or capacity guarantees.
 
 ## Methodology
 - **Tool**: `stress_test` binary (Rust).
@@ -34,7 +34,7 @@ Scenario: Primary ScyllaDB cluster is forcibly stopped (`docker stop`).
 |:-------|:-------|:------------|
 | **Throughput** | **~11,560 events/sec** | Failures flush to local disk immediately. |
 | **Availability**| **100%** | No writes were rejected. |
-| **Behavior** | Automatic fallback from Network I/O -> Local Disk I/O. |
+| **Behavior** | Automatic fallback from network I/O to local disk I/O. |
 
 ## Conclusion
-GraveyardDB provides predictable performance with minimal overhead for distributed features. The Hybrid Storage architecture ensures that **availability maximizes during outages**, effectively "failing open" to local storage.
+GraveyardDB showed predictable local performance in these runs, with low overhead for forwarding and local fallback. Before treating this as production evidence, rerun the benchmarks on representative hardware, with observability enabled, and with the release checklist completed.

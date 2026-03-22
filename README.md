@@ -1,61 +1,60 @@
 # GraveyardDB
 
-A distributed, high-performance Event Store backed by ScyllaDB and RocksDB.
+GraveyardDB is a distributed event store with ScyllaDB-backed primary storage, RocksDB fallback, gRPC APIs, sharded workers, schema support, snapshots, and language clients.
 
-## Architecture
+## Current Status
 
-*   **Primary Storage**: ScyllaDB (Cluster)
-*   **Fallback Storage**: RocksDB (Local)
-*   **Communication**: gRPC
-*   **Concurrency**: Local Worker Pool with Consistent Hashing (Sharding)
-
-## Features
-
-*   **Hybrid Storage**: Writes default to ScyllaDB. Automatically falls back to local RocksDB if the cluster is unreachable to ensure availability.
-*   **Sequential Processing**: Uses a sharded worker pool to ensure linearizable stream processing without database locks.
-*   **Distributed Clustering**:
-    *   **Consistent Hashing**: Streams are deterministically sharded across nodes.
-    *   **Forwarding**: Nodes forward requests to the responsible peer via gRPC.
-*   **Schema Governance**: Protobuf-based schema validation with immutable schema versioning stored in `$schema` streams.
+* The core Rust service handles append/read operations, schema management, snapshots, TLS, and token-based auth hooks.
+* Cluster ownership is deterministic and based on the configured node list.
+* Go, Java, and TypeScript SDKs exist under `sdks/`, but each should be validated against the release checklist before production use.
+* Historical benchmark notes live in [BENCHMARKS.md](./BENCHMARKS.md); they are local-development measurements, not SLAs.
 
 ## Getting Started
 
 ### Prerequisites
-*   Rust (1.75+)
-*   Docker & Docker Compose
 
-### Running Helper
-Start the 2-node cluster and ScyllaDB:
+* Rust stable
+* Protocol Buffers compiler (`protoc`)
+* Docker and Docker Compose for local cluster or ScyllaDB setups
+
+### Run Locally
+
+For RocksDB-only mode:
+
+```bash
+SCYLLA_KEYSPACE=graveyard cargo run --release
+```
+
+For ScyllaDB-backed mode:
+
+```bash
+SCYLLA_URI=127.0.0.1:9042 \
+SCYLLA_KEYSPACE=graveyard \
+CLUSTER_NODES=127.0.0.1:50051,127.0.0.1:50052 \
+NODE_ID=0 \
+PORT=50051 \
+cargo run --release
+```
+
+Optional environment variables:
+`REQUEST_TIMEOUT_MS`, `AUTH_TOKEN`, `TLS_CERT_PATH`, `TLS_KEY_PATH`, `DB_PATH`
+
+### Local Cluster
+
 ```bash
 docker-compose up -d
 ```
 
-### Manual execution
-```bash
-# Single node default
-cargo run --release
+Then point the server at the local ScyllaDB endpoint and the node list you want to use.
 
-# Environment Variables
-SCYLLA_URI=127.0.0.1:9042
-SCYLLA_KEYSPACE=graveyard
-CLUSTER_NODES=127.0.0.1:50051,127.0.0.1:50052
-NODE_ID=0
-PORT=50051
-DB_PATH=data/rocksdb
-```
+## Release and Contribution
 
-## Benchmarks
-
-System: Local Docker Cluster (2 Nodes), 50 Concurrent Workers.
-
-| Metric | Value | Note |
-|:-------|:------|:-----|
-| **Throughput (Single)** | ~3,128 ops/sec | RocksDB (Baseline) |
-| **Throughput (Cluster)**| ~2,887 ops/sec | 2 Nodes + Forwarding |
-| **Failover Rate** | ~11,560 ops/sec | ScyllaDB Down -> RocksDB Fallback |
+* Release process: [RELEASE.md](./RELEASE.md)
+* Changelog: [CHANGELOG.md](./CHANGELOG.md)
+* Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## SDKs
 
-*   **Java**: `com.eventstore.client` (Stable)
-*   **Go**: `graveyar_db/go` (Beta)
-*   **TypeScript**: `@graveyar_db/client` (Beta)
+* Go: [sdks/go/README.md](./sdks/go/README.md)
+* Java: [sdks/java/README.md](./sdks/java/README.md)
+* TypeScript: [sdks/typescript/README.md](./sdks/typescript/README.md)
