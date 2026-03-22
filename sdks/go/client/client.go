@@ -37,20 +37,9 @@ func NewClient(config Config) (*Client, error) {
 	var opts []grpc.DialOption
 
 	if config.UseTLS {
-		var creds credentials.TransportCredentials
-		var err error
-
-		if config.TLSCertFile != "" {
-			creds, err = credentials.NewClientTLSFromFile(config.TLSCertFile, "")
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			// Use system root CAs
-			// Note: This requires "crypto/x509" and "google.golang.org/grpc/credentials"
-			// Since we want to keep imports clean, we'll try standard loading if needed
-			// actually credentials.NewTLS(nil) uses system roots
-			creds = credentials.NewTLS(&tls.Config{})
+		creds, err := transportCredentials(config)
+		if err != nil {
+			return nil, err
 		}
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
@@ -66,6 +55,21 @@ func NewClient(config Config) (*Client, error) {
 		client: pb.NewEventStoreClient(conn),
 		config: config,
 	}, nil
+}
+
+func transportCredentials(config Config) (credentials.TransportCredentials, error) {
+	if config.TLSCertFile != "" {
+		creds, err := credentials.NewClientTLSFromFile(config.TLSCertFile, "")
+		if err != nil {
+			return nil, fmt.Errorf("load TLS CA file %q: %w", config.TLSCertFile, err)
+		}
+
+		return creds, nil
+	}
+
+	return credentials.NewTLS(&tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}), nil
 }
 
 // Close closes the underlying gRPC connection.
@@ -94,7 +98,7 @@ func (c *Client) withAuth(ctx context.Context) context.Context {
 func encodeExpectedVersion(expectedVersion int64) (int64, error) {
 	switch {
 	case expectedVersion < ExpectedVersionAny:
-		return 0, fmt.Errorf("expectedVersion must be %d or greater", ExpectedVersionAny)
+		return 0, fmt.Errorf("expected_version must be -1 or a non-negative version")
 	default:
 		return expectedVersion, nil
 	}
@@ -108,8 +112,9 @@ func encodeExpectedVersion(expectedVersion int64) (int64, error) {
 // Use client.ExpectedVersionAny to disable version checking, or pass a specific
 // version number (0, 1, ...) to enforce strict ordering.
 //
-// Returns true if the append was successful, or an error if the RPC failed
-// or the version check failed on the server side (depending on server error implementation).
+// Returns true if the append was successful, or an error if the RPC failed.
+// When expectedVersion is ExpectedVersionAny (-1), the request skips the server's
+// optimistic concurrency check. Non-negative values are sent unchanged.
 func (c *Client) AppendEvent(ctx context.Context, streamID string, events []*pb.Event, expectedVersion int64) (bool, error) {
 	ctx, cancel := c.unaryContext(ctx)
 	defer cancel()

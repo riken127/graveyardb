@@ -69,6 +69,7 @@ if err != nil {
 ```
 
 Use `client.ExpectedVersionAny` when you want the server to accept the append without checking the current stream version. Pass an explicit version when you want optimistic concurrency control.
+Only `-1` and non-negative versions are valid; the client rejects smaller values before the RPC is sent.
 
 ### Generate and Register a Schema
 
@@ -114,5 +115,7 @@ for {
 ## Notes
 
 - `Config.Timeout` applies to unary RPCs.
-- `Config.AuthToken` is sent as `authorization: Bearer <token>` on outgoing gRPC requests.
-- The generated schema uses exported Go field names unless you provide a `json` tag.
+- `Config.AuthToken` is sent as `authorization: Bearer <token>` on outgoing unary and streaming gRPC requests.
+- `Config.TLSCertFile` should point at a CA bundle used to verify the server certificate; when it is empty, Go's system root store is used.
+- The generated schema uses exported Go field names unless you provide a `json` tag. `json:"-"` omits a field from the schema entirely.
+- Schema generation does not currently support raw `[]byte` fields because the proto schema model has no byte primitive.

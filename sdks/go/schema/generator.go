@@ -30,6 +30,10 @@ type graveyardTagOptions struct {
 
 // Generate creates a protobuf Schema definition from a Go struct.
 func Generate(v interface{}) (*pb.Schema, error) {
+	if v == nil {
+		return nil, fmt.Errorf("schema generation requires a non-nil struct value")
+	}
+
 	t := reflect.TypeOf(v)
 	// Dereference pointer if needed
 	if t.Kind() == reflect.Ptr {
@@ -63,7 +67,11 @@ func generateStructSchema(t reflect.Type) (*pb.Schema, error) {
 
 		jsonTag := f.Tag.Get("json")
 
-		if jsonTag != "" && jsonTag != "-" {
+		if jsonTag == "-" {
+			continue
+		}
+
+		if jsonTag != "" {
 			parts := strings.Split(jsonTag, ",")
 			if parts[0] != "" {
 				fieldName = parts[0]
@@ -137,15 +145,8 @@ func mapFieldType(t reflect.Type) (*pb.FieldType, error) {
 	case reflect.Bool:
 		ft.Kind = &pb.FieldType_Primitive_{Primitive: pb.FieldType_BOOLEAN}
 	case reflect.Slice, reflect.Array:
-		// Handle []byte as Primitive String/Blob? Or Array of Numbers?
-		// Usually []byte is treated as bytes.
 		if t.Elem().Kind() == reflect.Uint8 {
-			// Special case for byte slice -> typically binary data.
-			// But our proto Primitive only has NUMBER, STRING, BOOLEAN.
-			// Let's map to STRING (base64) or fallback to Array of Numbers.
-			// For now, let's treat as Array of Numbers (uint8) for strictness,
-			// or if we add BYTES primitive later.
-			// Let's just treat as Array of logic.
+			return nil, fmt.Errorf("[]byte is not supported by the schema proto; use string or a nested schema field instead")
 		}
 
 		elemType, err := mapFieldType(t.Elem())
@@ -162,7 +163,7 @@ func mapFieldType(t reflect.Type) (*pb.FieldType, error) {
 		ft.Kind = &pb.FieldType_SubSchema{SubSchema: subSchema}
 
 	default:
-		return nil, fmt.Errorf("unsupported type: %s", t.Kind())
+		return nil, fmt.Errorf("unsupported type: %s", t.String())
 	}
 
 	return ft, nil

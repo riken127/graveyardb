@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc/metadata"
@@ -26,6 +27,8 @@ func TestEncodeExpectedVersion(t *testing.T) {
 
 	if _, err := encodeExpectedVersion(ExpectedVersionAny - 1); err == nil {
 		t.Fatalf("expected negative versions below the sentinel to fail")
+	} else if err.Error() != "expected_version must be -1 or a non-negative version" {
+		t.Fatalf("unexpected error message %q", err)
 	}
 }
 
@@ -46,5 +49,24 @@ func TestWithAuthAddsMetadata(t *testing.T) {
 	}
 	if values[0] != "Bearer secret-token" {
 		t.Fatalf("unexpected authorization header %q", values[0])
+	}
+}
+
+func TestTransportCredentialsWrapsCAFileErrors(t *testing.T) {
+	_, err := transportCredentials(Config{
+		UseTLS:      true,
+		TLSCertFile: "/definitely/not/present.pem",
+	})
+	if err == nil {
+		t.Fatalf("expected missing CA file to fail")
+	}
+	if got := err.Error(); got == "" || !strings.Contains(got, "/definitely/not/present.pem") {
+		t.Fatalf("expected error to mention the CA file path, got %q", got)
+	}
+}
+
+func TestTransportCredentialsDefaultTLS(t *testing.T) {
+	if _, err := transportCredentials(Config{UseTLS: true}); err != nil {
+		t.Fatalf("transportCredentials failed: %v", err)
 	}
 }

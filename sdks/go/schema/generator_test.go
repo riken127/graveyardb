@@ -2,6 +2,7 @@ package schema
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	pb "github.com/riken127/graveyar_db/sdks/go/proto"
@@ -23,6 +24,15 @@ type AddressStruct struct {
 type TaggedStruct struct {
 	Username string `json:"username" graveyard:"min_length=3,max_length=12,regex=^[a-z]+$,required"`
 	Age      *int   `graveyard:"min=18,max=150,nullable=true"`
+}
+
+type OmittedFieldStruct struct {
+	Visible string
+	Hidden  string `json:"-"`
+}
+
+type BytePayloadStruct struct {
+	Payload []byte
 }
 
 func TestGenerate(t *testing.T) {
@@ -124,5 +134,33 @@ func TestGenerateParsesGraveyardTags(t *testing.T) {
 	}
 	if got := age.Constraints.MaxValue; got == nil || *got != 150 {
 		t.Fatalf("expected max=150, got %v", got)
+	}
+}
+
+func TestGenerateSkipsOmittedJsonFields(t *testing.T) {
+	schema, err := Generate(OmittedFieldStruct{})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	if _, ok := schema.Fields["Hidden"]; ok {
+		t.Fatalf("json:\"-\" field should be omitted from the schema")
+	}
+	if _, ok := schema.Fields["Visible"]; !ok {
+		t.Fatalf("expected Visible field to remain in the schema")
+	}
+}
+
+func TestGenerateRejectsNilAndByteSlices(t *testing.T) {
+	if _, err := Generate(nil); err == nil {
+		t.Fatalf("expected nil input to fail")
+	} else if got := err.Error(); !strings.Contains(got, "non-nil struct value") {
+		t.Fatalf("expected nil-input error to be descriptive, got %q", got)
+	}
+
+	if _, err := Generate(BytePayloadStruct{}); err == nil {
+		t.Fatalf("expected []byte to be rejected")
+	} else if got := err.Error(); !strings.Contains(got, "[]byte is not supported") {
+		t.Fatalf("expected []byte error to be descriptive, got %q", got)
 	}
 }

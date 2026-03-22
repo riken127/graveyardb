@@ -15,10 +15,10 @@ type Config struct {
 	UseTLS bool
 
 	// TLSCertFile is the path to the CA certificate file for verifying the server's certificate.
-	// If empty and UseTLS is true, the system's root CAs will be used.
+	// If empty and UseTLS is true, the client uses the host root CA pool.
 	TLSCertFile string
 
-	// AuthToken is sent as a Bearer token on outgoing gRPC requests when set.
+	// AuthToken is sent as a Bearer token on outgoing unary and streaming gRPC requests when set.
 	AuthToken string
 }
 
