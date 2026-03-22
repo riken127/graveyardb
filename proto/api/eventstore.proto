@@ -43,9 +43,9 @@ message AppendEventRequest {
     repeated Event events = 2;
     
     // Expected version for Optimistic Concurrency Control (OCC).
-    // - Use -1 (or 0 depending on impl) to disable check.
-    // - Use exact version number to ensure no concurrent modifications.
-    uint64 expected_version = 3;
+    // - Use -1 to disable the version check.
+    // - Use a non-negative version to require an exact match.
+    int64 expected_version = 3;
     
     // Internal use: signals that this request was forwarded from another node.
     // Clients should generally set this to false.

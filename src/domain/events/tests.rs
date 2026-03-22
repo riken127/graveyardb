@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::domain::events::event::Event;
     use crate::domain::events::event_kind::{EventKind, EventPayload};
 

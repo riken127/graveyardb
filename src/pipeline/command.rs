@@ -1,4 +1,5 @@
 use crate::domain::events::event::Event;
+use crate::pipeline::PipelineError;
 use tokio::sync::oneshot;
 
 pub enum PipelineCommand {
@@ -6,6 +7,6 @@ pub enum PipelineCommand {
         stream_id: String,
         events: Vec<Event>,
         expected_version: i64,
-        resp_tx: oneshot::Sender<Result<bool, String>>,
+        resp_tx: oneshot::Sender<Result<(), PipelineError>>,
     },
 }

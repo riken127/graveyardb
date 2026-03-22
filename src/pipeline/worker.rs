@@ -1,5 +1,6 @@
 use crate::domain::events::event::Event;
 use crate::pipeline::command::PipelineCommand;
+use crate::pipeline::PipelineError;
 use crate::storage::event_store::EventStore;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -37,7 +38,11 @@ impl Worker {
         stream_id: &str,
         events: &mut Vec<Event>,
         expected_version: i64,
-    ) -> Result<bool, String> {
+    ) -> Result<(), PipelineError> {
+        if expected_version < -1 {
+            return Err(PipelineError::InvalidExpectedVersion(expected_version));
+        }
+
         // 1. Resolve expected version
         let mut current_version_u64 = if expected_version == -1 {
             // "Any" version: Fetch tail to determine next
@@ -45,18 +50,13 @@ impl Worker {
                 .store
                 .fetch_stream(stream_id)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(PipelineError::from)?;
             current_events
                 .last()
                 .map(|e| e.sequence_number)
                 .unwrap_or(0)
         } else {
-            // Specific version expected
-            if expected_version < 0 {
-                0
-            } else {
-                expected_version as u64
-            }
+            expected_version as u64
         };
 
         // 2. Prepare events
@@ -69,22 +69,13 @@ impl Worker {
         // To fix this proper, EventStore needs transaction support.
         // But with OCC, we at least won't corrupt data, just stop.
         for event in events.drain(..) {
-            match self
-                .store
+            self.store
                 .append_event(stream_id, event, current_version_u64)
                 .await
-            {
-                Ok(_) => {
-                    current_version_u64 += 1;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to append event to stream {}: {}", stream_id, e);
-                    // Abort batch
-                    return Ok(false);
-                }
-            }
+                .map_err(PipelineError::from)?;
+            current_version_u64 += 1;
         }
 
-        Ok(true)
+        Ok(())
     }
 }

@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let req = AppendEventRequest {
                     stream_id: stream_id.clone(),
                     events: vec![event],
-                    expected_version: u64::MAX, // Casts to -1 in backend (no OCC)
+                    expected_version: -1, // Sentinel for "append regardless of current version"
                     is_forwarded: false,
                 };
 

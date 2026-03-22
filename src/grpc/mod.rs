@@ -9,7 +9,7 @@ use crate::api::{
     UpsertSchemaResponse,
 };
 use crate::domain::events::event::Event as DomainEvent;
-use crate::pipeline::EventPipeline;
+use crate::pipeline::{EventPipeline, PipelineError};
 
 pub mod auth;
 
@@ -41,7 +41,8 @@ impl EventStore for GrpcService {
     ) -> Result<Response<AppendEventResponse>, Status> {
         let req = request.into_inner();
         let stream_id = req.stream_id;
-        let expected_version = req.expected_version as i64; // Be careful with conversion logic, see SDK notes
+        validate_expected_version(req.expected_version)?;
+        let expected_version = req.expected_version;
 
         // Convert proto events to domain events
         let mut domain_events = Vec::new();
@@ -67,15 +68,9 @@ impl EventStore for GrpcService {
                 .await
         };
 
-        let success = result.map_err(|e| {
-            if e.contains("NotOwnerError") {
-                Status::failed_precondition(e)
-            } else {
-                Status::internal(e)
-            }
-        })?;
+        result.map_err(status_from_pipeline_error)?;
 
-        Ok(Response::new(AppendEventResponse { success }))
+        Ok(Response::new(AppendEventResponse { success: true }))
     }
 
     async fn get_events(
@@ -212,5 +207,65 @@ impl EventStore for GrpcService {
                 found: false,
             })),
         }
+    }
+}
+
+fn validate_expected_version(expected_version: i64) -> Result<(), Status> {
+    if expected_version < -1 {
+        return Err(Status::invalid_argument(
+            "expected_version must be -1 or a non-negative version",
+        ));
+    }
+
+    Ok(())
+}
+
+fn status_from_pipeline_error(error: PipelineError) -> Status {
+    match error {
+        PipelineError::InvalidExpectedVersion(value) => Status::invalid_argument(format!(
+            "expected_version must be -1 or a non-negative version, got {}",
+            value
+        )),
+        PipelineError::NotOwner {
+            stream_id,
+            owner,
+            current_node,
+            epoch,
+        } => Status::failed_precondition(format!(
+            "stream {} is owned by {} not {} (epoch {})",
+            stream_id, owner, current_node, epoch
+        )),
+        PipelineError::Concurrency { expected, actual } => Status::aborted(format!(
+            "expected version {} does not match current version {}",
+            expected, actual
+        )),
+        PipelineError::Forwarding { target, reason } => Status::unavailable(format!(
+            "failed to forward append to {}: {}",
+            target, reason
+        )),
+        PipelineError::Storage(msg) => Status::internal(msg),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{status_from_pipeline_error, validate_expected_version};
+    use crate::pipeline::PipelineError;
+    use tonic::Code;
+
+    #[test]
+    fn rejects_expected_version_below_sentinel() {
+        let err = validate_expected_version(-2).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn maps_concurrency_conflict_to_aborted() {
+        let status = status_from_pipeline_error(PipelineError::Concurrency {
+            expected: 2,
+            actual: 3,
+        });
+
+        assert_eq!(status.code(), Code::Aborted);
     }
 }

@@ -72,7 +72,7 @@ impl ClusterClient {
         let req = AppendEventRequest {
             stream_id: stream_id.to_string(),
             events: proto_events,
-            expected_version: expected_version as u64,
+            expected_version,
             is_forwarded: true,
         };
 

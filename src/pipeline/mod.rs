@@ -7,9 +7,11 @@ use crate::domain::events::event::Event;
 use crate::pipeline::command::PipelineCommand;
 use crate::pipeline::worker::Worker;
 use crate::storage::event_store::EventStore;
+use crate::storage::event_store::EventStoreError;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 const NUM_WORKERS: usize = 32;
@@ -21,6 +23,39 @@ const NUM_WORKERS: usize = 32;
 /// 2. Validating events against schemas (Optional).
 /// 3. Serializing write requests per stream to ensure linearizability via workers.
 /// 4. Delegating persistence to the `EventStore`.
+#[derive(Debug, Error)]
+pub enum PipelineError {
+    #[error("invalid expected version {0}; use -1 or a non-negative version")]
+    InvalidExpectedVersion(i64),
+    #[error("stream {stream_id} is owned by {owner}, not {current_node} (epoch {epoch})")]
+    NotOwner {
+        stream_id: String,
+        owner: String,
+        current_node: String,
+        epoch: u64,
+    },
+    #[error("concurrency conflict: expected {expected}, actual {actual}")]
+    Concurrency { expected: u64, actual: u64 },
+    #[error("forwarding to {target} failed: {reason}")]
+    Forwarding { target: String, reason: String },
+    #[error("storage error: {0}")]
+    Storage(String),
+}
+
+impl From<EventStoreError> for PipelineError {
+    fn from(err: EventStoreError) -> Self {
+        match err {
+            EventStoreError::ConcurrencyError { expected, actual } => {
+                PipelineError::Concurrency { expected, actual }
+            }
+            EventStoreError::StorageError(msg) => PipelineError::Storage(msg),
+            EventStoreError::SerializationError(err) => PipelineError::Storage(err.to_string()),
+            EventStoreError::NotFound => PipelineError::Storage("stream not found".to_string()),
+            EventStoreError::Unknown(msg) => PipelineError::Storage(msg),
+        }
+    }
+}
+
 pub struct EventPipeline {
     storage: Arc<dyn EventStore + Send + Sync>,
     workers: Vec<mpsc::Sender<PipelineCommand>>,
@@ -87,16 +122,32 @@ impl EventPipeline {
         stream_id: &str,
         events: Vec<Event>,
         expected_version: i64,
-    ) -> Result<bool, String> {
+    ) -> Result<(), PipelineError> {
+        if expected_version < -1 {
+            return Err(PipelineError::InvalidExpectedVersion(expected_version));
+        }
+
         let owner = self.topology.get_owner(stream_id);
 
         if owner.node_addr == self.self_addr {
             self.append_event_as_owner(stream_id, events, expected_version)
                 .await
         } else {
-            self.cluster_client
+            match self
+                .cluster_client
                 .forward_append(&owner.node_addr, stream_id, events, expected_version)
                 .await
+            {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(PipelineError::Forwarding {
+                    target: owner.node_addr,
+                    reason: "peer rejected append".to_string(),
+                }),
+                Err(reason) => Err(PipelineError::Forwarding {
+                    target: owner.node_addr,
+                    reason,
+                }),
+            }
         }
     }
 
@@ -107,14 +158,20 @@ impl EventPipeline {
         stream_id: &str,
         events: Vec<Event>,
         expected_version: i64,
-    ) -> Result<bool, String> {
+    ) -> Result<(), PipelineError> {
+        if expected_version < -1 {
+            return Err(PipelineError::InvalidExpectedVersion(expected_version));
+        }
+
         // 1. Validate Ownership Again (Safety)
         let owner = self.topology.get_owner(stream_id);
         if owner.node_addr != self.self_addr {
-            return Err(format!(
-                "NotOwnerError: Node {} received write for stream {} but owner is {} (Epoch {})",
-                self.self_addr, stream_id, owner.node_addr, owner.epoch
-            ));
+            return Err(PipelineError::NotOwner {
+                stream_id: stream_id.to_string(),
+                owner: owner.node_addr,
+                current_node: self.self_addr.clone(),
+                epoch: owner.epoch,
+            });
         }
 
         // Schema Validation (Soft Fail)
@@ -150,9 +207,11 @@ impl EventPipeline {
         self.workers[worker_idx]
             .send(cmd)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| PipelineError::Storage(e.to_string()))?;
 
-        resp_rx.await.map_err(|e| e.to_string())?
+        resp_rx
+            .await
+            .map_err(|e| PipelineError::Storage(e.to_string()))?
     }
 
     pub async fn fetch_stream(&self, stream_id: &str) -> Result<Vec<Event>, String> {
@@ -180,5 +239,86 @@ impl EventPipeline {
             .get_schema(name)
             .await
             .map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EventPipeline, PipelineError};
+    use crate::domain::events::event::Event;
+    use crate::domain::events::event_kind::{EventKind, EventPayload};
+    use crate::domain::schema::model::Schema;
+    use crate::storage::event_store::{EventStore, EventStoreError};
+    use std::sync::Arc;
+    use tonic::async_trait;
+
+    struct ConcurrencyStore;
+
+    #[async_trait]
+    impl EventStore for ConcurrencyStore {
+        async fn append_event(
+            &self,
+            _stream: &str,
+            _event: Event,
+            expected_version: u64,
+        ) -> Result<(), EventStoreError> {
+            Err(EventStoreError::ConcurrencyError {
+                expected: expected_version,
+                actual: expected_version + 1,
+            })
+        }
+
+        async fn fetch_stream(&self, _stream: &str) -> Result<Vec<Event>, EventStoreError> {
+            Ok(Vec::new())
+        }
+
+        async fn upsert_schema(&self, _schema: Schema) -> Result<(), EventStoreError> {
+            Ok(())
+        }
+
+        async fn get_schema(&self, _name: &str) -> Result<Option<Schema>, EventStoreError> {
+            Ok(None)
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_expected_version() {
+        let pipeline = EventPipeline::new(
+            Arc::new(ConcurrencyStore),
+            vec!["127.0.0.1:50051".to_string()],
+            0,
+            None,
+        );
+
+        let event = Event::new("stream-1", EventKind::Internal, EventPayload(vec![1]));
+        let result = pipeline.append_event("stream-1", vec![event], -2).await;
+
+        assert!(matches!(
+            result,
+            Err(PipelineError::InvalidExpectedVersion(-2))
+        ));
+    }
+
+    #[tokio::test]
+    async fn propagates_concurrency_conflicts() {
+        let pipeline = EventPipeline::new(
+            Arc::new(ConcurrencyStore),
+            vec!["127.0.0.1:50051".to_string()],
+            0,
+            None,
+        );
+
+        let event = Event::new("stream-1", EventKind::Internal, EventPayload(vec![1]));
+        let result = pipeline
+            .append_event_as_owner("stream-1", vec![event], 0)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(PipelineError::Concurrency {
+                expected: 0,
+                actual: 1
+            })
+        ));
     }
 }
