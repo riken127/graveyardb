@@ -2,6 +2,7 @@ use scylla::client::session::Session;
 use scylla::client::session_builder::SessionBuilder;
 use std::time::Duration;
 
+/// Errors returned by Scylla store initialization and schema bootstrap.
 #[derive(Debug, thiserror::Error)]
 pub enum ScyllaError {
     #[error("Connection error: {0}")]
@@ -16,6 +17,7 @@ pub struct ScyllaStore {
 }
 
 impl ScyllaStore {
+    /// Creates a Scylla-backed store and ensures required tables exist.
     pub async fn new(uri: &str, keyspace: &str) -> Result<Self, ScyllaError> {
         let session = SessionBuilder::new()
             .known_node(uri)
@@ -35,7 +37,6 @@ impl ScyllaStore {
     }
 
     async fn init_schema(&self) -> Result<(), ScyllaError> {
-        // Create keyspace
         let create_keyspace = format!(
             "CREATE KEYSPACE IF NOT EXISTS {} \
              WITH replication = {{'class': 'SimpleStrategy', 'replication_factor': 1}}",
@@ -46,8 +47,7 @@ impl ScyllaStore {
             .await
             .map_err(|e| ScyllaError::QueryError(e.to_string()))?;
 
-        // Create table
-        // stream_id is partition key, id (uuid v7) is clustering key for time ordering
+        // `stream_id` is the partition key and `version` is the clustering key.
         let create_table = format!(
             "CREATE TABLE IF NOT EXISTS {}.events ( \
              stream_id text, \
@@ -78,12 +78,12 @@ impl ScyllaStore {
             .await
             .map_err(|e| ScyllaError::QueryError(e.to_string()))?;
 
-        // Migration: Attempt to add metadata column if missing
+        // Backward-compatible migration for deployments created before `metadata`.
         let alter_table = format!(
             "ALTER TABLE {}.events ADD metadata map<text, text>",
             self.keyspace
         );
-        let _ = self.session.query_unpaged(alter_table, &[]).await; // Ignore error if exists
+        let _ = self.session.query_unpaged(alter_table, &[]).await;
 
         Ok(())
     }
@@ -107,14 +107,13 @@ impl EventStore for ScyllaStore {
         mut event: Event,
         expected_version: u64,
     ) -> Result<(), EventStoreError> {
-        // Prepare query with LWT
         let query = format!(
             "INSERT INTO {}.events (stream_id, version, id, event_type, payload, timestamp, metadata) VALUES (?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS",
             self.keyspace
         );
 
         let next_version = expected_version + 1;
-        event.sequence_number = next_version; // Assign atomic version
+        event.sequence_number = next_version;
 
         let id = event.id.0;
         let event_type_str = event.event_type.to_string();
@@ -140,18 +139,15 @@ impl EventStore for ScyllaStore {
             .await
             .map_err(|e| EventStoreError::StorageError(e.to_string()))?;
 
-        // Check LWT result
-        // Use into_rows_result to parse safely
+        // Parse LWT outcome from the `[applied]` column.
         if let Ok(rows) = result.into_rows_result() {
-            // Try to parse the first column as boolean [applied]
-            // We use (bool,) tuple to match the row structure partially.
-            // Scylla driver allows ignoring trailing columns.
             if let Ok(mut iter) = rows.rows::<(bool,)>() {
                 if let Some(Ok((applied,))) = iter.next() {
                     if !applied {
                         return Err(EventStoreError::ConcurrencyError {
                             expected: expected_version,
-                            actual: 0, // TODO: Parse actual version from subsequent columns if needed
+                            // Current version is not decoded from the row projection.
+                            actual: 0,
                         });
                     }
                 }
@@ -195,13 +191,12 @@ impl EventStore for ScyllaStore {
             let (_stream_id, version, id, event_type_str, payload, timestamp, metadata) =
                 row.map_err(|e| EventStoreError::StorageError(e.to_string()))?;
 
-            // Reconstruct Event
             let event_type =
                 crate::domain::events::event_kind::EventKind::from_type_name(&event_type_str);
 
             events.push(Event {
                 id: crate::domain::events::event_kind::EventId(id),
-                stream_id: stream.to_string(), // we queried by this stream
+                stream_id: stream.to_string(),
                 sequence_number: version as u64,
                 event_type,
                 payload: crate::domain::events::event_kind::EventPayload(payload),
@@ -213,10 +208,8 @@ impl EventStore for ScyllaStore {
     }
 
     async fn upsert_schema(&self, schema: Schema) -> Result<(), EventStoreError> {
-        // 1. Append to Migration Log (Event Stream)
+        // Append to schema history stream.
         let stream_id = format!("$schema:{}", schema.name);
-
-        // Serialize Schema to Payload
         let payload_bytes = serde_cbor::to_vec(&schema)?;
 
         let migration_event = Event::new(
@@ -225,29 +218,22 @@ impl EventStore for ScyllaStore {
             EventPayload(payload_bytes.clone()),
         );
 
-        // For schema stream, we might need relaxed concurrency or strictly ordered.
-        // For now, let's assume schemas are rare and we can just try to append with version 0 if new, OR better,
-        // Since schema migrations are rare, we can fetch head. But `EventPipeline` is not used here?
-        // Wait, `upsert_schema` is in `EventStore`.
-        // To do this strictly, we need to know the tail.
-        // Let's FETCH first. (Slow, but safe for schema).
-
+        // Fetch stream tail to preserve OCC guarantees for schema updates.
         let events = self.fetch_stream(&stream_id).await?;
         let next_version = events.last().map(|e| e.sequence_number).unwrap_or(0);
 
         self.append_event(&stream_id, migration_event, next_version)
             .await?;
 
-        // 2. Update Current State Table
+        // Update current schema projection.
         let query = format!(
             "INSERT INTO {}.schemas (name, definition, updated_at) VALUES (?, ?, ?)",
             self.keyspace
         );
 
-        // Use current timestamp for updated_at
         let updated_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap() // Safe unwrap for now
+            .map_err(|e| EventStoreError::StorageError(e.to_string()))?
             .as_millis() as i64;
 
         self.session
@@ -274,7 +260,6 @@ impl EventStore for ScyllaStore {
             .into_rows_result()
             .map_err(|e| EventStoreError::StorageError(e.to_string()))?;
 
-        // Use standard iterator
         let mut rows = rows_result
             .rows::<(Vec<u8>,)>()
             .map_err(|e| EventStoreError::StorageError(e.to_string()))?;

@@ -17,13 +17,13 @@ use tokio::sync::{mpsc, oneshot};
 
 const NUM_WORKERS: usize = 32;
 
-/// The primary event processing pipeline.
+/// Primary event processing pipeline.
 ///
-/// `EventPipeline` is responsibility for:
-/// 1. Routing requests to the correct node (Owner) in the cluster/shard.
-/// 2. Validating events against schemas (Optional).
-/// 3. Serializing write requests per stream to ensure linearizability via workers.
-/// 4. Delegating persistence to the `EventStore`.
+/// Responsibilities:
+/// 1. Resolve stream ownership and forward cross-node appends.
+/// 2. Validate payloads against registered schemas.
+/// 3. Serialize writes per stream via sharded workers.
+/// 4. Delegate persistence to the configured `EventStore`.
 #[derive(Debug, Error)]
 pub enum PipelineError {
     #[error("invalid expected version {0}; use -1 or a non-negative version")]
@@ -73,7 +73,7 @@ pub struct EventPipeline {
 }
 
 impl EventPipeline {
-    /// Creates a new pipeline instance, initializing worker pools and cluster topology.
+    /// Creates a new pipeline and worker pool.
     pub fn new(
         storage: Arc<dyn EventStore + Send + Sync>,
         cluster_nodes: Vec<String>,
@@ -94,15 +94,15 @@ impl EventPipeline {
             workers.push(tx);
         }
 
-        // Initialize Topology with Epoch 0 (MVP Static)
+        // Epoch 0 represents the initial static topology snapshot.
         let topology = ClusterTopology::new(cluster_nodes.clone(), 0);
 
-        // Determine self address based on ID, safe fallback if config is weird
+        // Resolve this node's advertised address from the sorted topology list.
+        // Fall back to the first configured node when NODE_ID is out of bounds.
         let sorted_nodes = topology.get_all_nodes();
         let self_addr = if (self_node_id as usize) < sorted_nodes.len() {
             sorted_nodes[self_node_id as usize].clone()
         } else {
-            // Fallback for single node dev mode if config mismatch, assuming first one
             sorted_nodes
                 .first()
                 .cloned()
@@ -161,8 +161,10 @@ impl EventPipeline {
         }
     }
 
-    /// Strict Entry point: Only processes if WE are the owner.
-    /// Used for forwarded requests or strict validation.
+    /// Owner-only append path.
+    ///
+    /// This method enforces ownership and is intended for forwarded requests and
+    /// server-side write execution after ownership has been resolved.
     pub async fn append_event_as_owner(
         &self,
         stream_id: &str,
@@ -173,7 +175,7 @@ impl EventPipeline {
             return Err(PipelineError::InvalidExpectedVersion(expected_version));
         }
 
-        // 1. Validate Ownership Again (Safety)
+        // Re-validate ownership to protect against stale callers.
         let owner = self.topology.get_owner(stream_id);
         if owner.node_addr != self.self_addr {
             return Err(PipelineError::NotOwner {
@@ -184,10 +186,9 @@ impl EventPipeline {
             });
         }
 
-        // Schema Validation (Soft Fail)
+        // Validate payloads when schemas exist for the event type.
         for event in &events {
             let type_str = event.event_type.to_string();
-            // Optimization: Only check if looks like custom event or check existence
             if let Ok(Some(schema)) = self.storage.get_schema(&type_str).await {
                 if let Err(errs) = crate::domain::schema::validation::validate_event_payload(
                     &event.payload.0,
@@ -200,12 +201,17 @@ impl EventPipeline {
                             details: format_validation_errors(&errs),
                         });
                     }
-                    tracing::warn!(stream_id = %stream_id, event_type = %type_str, errors = ?errs, "Schema validation failed (Soft Fail)");
+                    tracing::warn!(
+                        stream_id = %stream_id,
+                        event_type = %type_str,
+                        errors = ?errs,
+                        "Schema validation failed; continuing because hard-fail mode is disabled"
+                    );
                 }
             }
         }
 
-        // 2. Local Processing via Sharded Workers
+        // Route to a deterministic worker index derived from stream id.
         let mut hasher = DefaultHasher::new();
         stream_id.hash(&mut hasher);
         let hash = hasher.finish();
@@ -237,6 +243,7 @@ impl EventPipeline {
             .map_err(|e| e.to_string())
     }
 
+    /// Registers or updates a schema definition.
     pub async fn upsert_schema(
         &self,
         schema: crate::domain::schema::model::Schema,
@@ -247,6 +254,7 @@ impl EventPipeline {
             .map_err(|e| e.to_string())
     }
 
+    /// Retrieves a schema by name.
     pub async fn get_schema(
         &self,
         name: &str,

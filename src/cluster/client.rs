@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 
+/// Reusable gRPC client pool for forwarding requests to peer nodes.
 #[derive(Clone)]
 pub struct ClusterClient {
     clients: Arc<RwLock<HashMap<String, EventStoreClient<Channel>>>>,
@@ -13,6 +14,7 @@ pub struct ClusterClient {
 }
 
 impl ClusterClient {
+    /// Creates a forwarding client pool.
     pub fn new(auth_token: Option<String>) -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
@@ -28,8 +30,11 @@ impl Default for ClusterClient {
 }
 
 impl ClusterClient {
+    /// Returns a connected gRPC client for the given node address.
+    ///
+    /// The method performs a lock-free read first, then upgrades to a write lock
+    /// only when a new connection must be established.
     pub async fn get_client(&self, addr: &str) -> Result<EventStoreClient<Channel>, String> {
-        // Fast path: read lock
         {
             let map = self.clients.read().await;
             if let Some(client) = map.get(addr) {
@@ -37,14 +42,12 @@ impl ClusterClient {
             }
         }
 
-        // Slow path: connect and write lock
         let mut map = self.clients.write().await;
-        // Check again in case of race
         if let Some(client) = map.get(addr) {
             return Ok(client.clone());
         }
 
-        let uri = format!("http://{}", addr); // Assume HTTP/2 without TLS for internal cluster for MVP
+        let uri = format!("http://{}", addr);
         let channel = Channel::from_shared(uri)
             .map_err(|e| e.to_string())?
             .connect()
@@ -57,6 +60,10 @@ impl ClusterClient {
         Ok(client)
     }
 
+    /// Forwards an append request to the owner node.
+    ///
+    /// The forwarded request is marked with `is_forwarded=true` so the receiver
+    /// executes owner-only append logic and does not forward again.
     pub async fn forward_append(
         &self,
         target_node: &str,
@@ -66,7 +73,6 @@ impl ClusterClient {
     ) -> Result<bool, String> {
         let mut client = self.get_client(target_node).await?;
 
-        // Convert Domain Events to Proto Events
         let proto_events: Vec<ProtoEvent> = events.into_iter().map(|e| e.into()).collect();
 
         let req = AppendEventRequest {

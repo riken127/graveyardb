@@ -3,12 +3,19 @@ pub mod client;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Debug, PartialEq)] // Added Debug/PartialEq
+/// Ownership information for a stream under a specific topology epoch.
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChainOwner {
+    /// Address of the node responsible for the stream.
     pub node_addr: String,
+    /// Topology version used to resolve ownership.
     pub epoch: u64,
 }
 
+/// Deterministic stream-to-node mapper.
+///
+/// Nodes are sorted during construction so every process computes the same
+/// owner for a given stream id and epoch.
 #[derive(Clone)]
 pub struct ClusterTopology {
     nodes: Vec<String>,
@@ -16,6 +23,7 @@ pub struct ClusterTopology {
 }
 
 impl ClusterTopology {
+    /// Builds a topology from the provided node set and epoch.
     pub fn new(nodes: Vec<String>, epoch: u64) -> Self {
         let mut sorted_nodes = nodes;
         sorted_nodes.sort();
@@ -25,6 +33,7 @@ impl ClusterTopology {
         }
     }
 
+    /// Resolves stream ownership using a stable hash modulo node count.
     pub fn get_owner(&self, stream_id: &str) -> ChainOwner {
         let mut hasher = DefaultHasher::new();
         stream_id.hash(&mut hasher);
@@ -55,7 +64,6 @@ mod tests {
         let nodes = vec!["127.0.0.1:50051".to_string(), "127.0.0.1:50052".to_string()];
         let topology = ClusterTopology::new(nodes, 1);
 
-        // "stream-1" should always hash to the same node
         let owner_a = topology.get_owner("stream-1");
         let owner_b = topology.get_owner("stream-1");
 
@@ -71,11 +79,10 @@ mod tests {
         let o1 = t1.get_owner("stream-x");
         assert_eq!(o1.epoch, 10);
 
-        // New topology with higher epoch
         let t2 = ClusterTopology::new(nodes, 20);
         let o2 = t2.get_owner("stream-x");
         assert_eq!(o2.epoch, 20);
-        assert_eq!(o1.node_addr, o2.node_addr); // Owner shouldn't change if nodes same
+        assert_eq!(o1.node_addr, o2.node_addr);
     }
 
     #[test]
@@ -86,12 +93,9 @@ mod tests {
         let nodes2 = vec!["A".to_string(), "B".to_string(), "C".to_string()];
         let t2 = ClusterTopology::new(nodes2, 2);
 
-        // Distribution changes, but epoch tracks it
         let o1 = t1.get_owner("stream-1");
         let o2 = t2.get_owner("stream-1");
 
-        // Usually, hashes differ with node count.
-        // We just assert they return valid owners from their respective sets.
         assert!(t1.get_all_nodes().contains(&o1.node_addr));
         assert!(t2.get_all_nodes().contains(&o2.node_addr));
         assert_ne!(o1.epoch, o2.epoch);

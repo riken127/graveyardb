@@ -42,10 +42,6 @@ describe('SchemaGenerator', () => {
 });
 
 describe('EventStoreClient', () => {
-    // Note: To fully mock grpc-js in jest requires more setup or separate integration test
-    // For now, we are verifying compilation and basic class structure.
-    // In a real scenario, we would mock the GrpcClient prototype.
-
     let client: EventStoreClient;
 
     beforeEach(() => {

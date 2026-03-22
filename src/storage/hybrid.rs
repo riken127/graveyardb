@@ -5,12 +5,14 @@ use std::sync::Arc;
 use tonic::async_trait;
 use tracing::warn;
 
+/// Event store wrapper with best-effort primary/fallback failover.
 pub struct HybridEventStore {
     primary: Arc<dyn EventStore>,
     fallback: Arc<dyn EventStore>,
 }
 
 impl HybridEventStore {
+    /// Builds a hybrid store from primary and fallback backends.
     pub fn new(primary: Arc<dyn EventStore>, fallback: Arc<dyn EventStore>) -> Self {
         Self { primary, fallback }
     }
@@ -24,7 +26,6 @@ impl EventStore for HybridEventStore {
         event: Event,
         expected_version: u64,
     ) -> Result<(), EventStoreError> {
-        // Try Primary
         match self
             .primary
             .append_event(stream, event.clone(), expected_version)
@@ -36,7 +37,6 @@ impl EventStore for HybridEventStore {
                     "Primary Storage failed during append: {}. Falling back to Secondary.",
                     e
                 );
-                // Try Fallback
                 self.fallback
                     .append_event(stream, event, expected_version)
                     .await
@@ -45,7 +45,6 @@ impl EventStore for HybridEventStore {
     }
 
     async fn fetch_stream(&self, stream: &str) -> Result<Vec<Event>, EventStoreError> {
-        // Try Primary
         match self.primary.fetch_stream(stream).await {
             Ok(events) => Ok(events),
             Err(e) => {
@@ -59,9 +58,6 @@ impl EventStore for HybridEventStore {
     }
 
     async fn upsert_schema(&self, schema: Schema) -> Result<(), EventStoreError> {
-        // Primary first, then failover.
-        // TODO: Consider dual-write for stronger consistency.
-
         match self.primary.upsert_schema(schema.clone()).await {
             Ok(_) => Ok(()),
             Err(e) => {

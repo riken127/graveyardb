@@ -11,10 +11,12 @@ pub struct Worker {
 }
 
 impl Worker {
+    /// Constructs a worker bound to a shared event store.
     pub fn new(_id: usize, store: Arc<dyn EventStore + Send + Sync>) -> Self {
         Self { _id, store }
     }
 
+    /// Processes serialized commands assigned to this worker.
     pub async fn run(self, mut rx: mpsc::Receiver<PipelineCommand>) {
         while let Some(cmd) = rx.recv().await {
             match cmd {
@@ -43,9 +45,8 @@ impl Worker {
             return Err(PipelineError::InvalidExpectedVersion(expected_version));
         }
 
-        // 1. Resolve expected version
+        // Resolve the starting expected version.
         let mut current_version_u64 = if expected_version == -1 {
-            // "Any" version: Fetch tail to determine next
             let current_events = self
                 .store
                 .fetch_stream(stream_id)
@@ -59,15 +60,13 @@ impl Worker {
             expected_version as u64
         };
 
-        // 2. Prepare events
+        // Ensure each event carries the target stream id.
         for event in events.iter_mut() {
             event.stream_id = stream_id.to_string();
         }
 
-        // 3. Persist Loop
-        // Note: This is not atomic batch! Partial failure is possible.
-        // To fix this proper, EventStore needs transaction support.
-        // But with OCC, we at least won't corrupt data, just stop.
+        // Persist events sequentially. This loop is intentionally non-transactional;
+        // a storage backend can observe partial writes if a later append fails.
         for event in events.drain(..) {
             self.store
                 .append_event(stream_id, event, current_version_u64)

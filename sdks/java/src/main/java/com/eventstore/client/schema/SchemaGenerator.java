@@ -117,26 +117,13 @@ public class SchemaGenerator {
             }
             typeBuilder.setEnumDef(enumBuilder.build());
         } else if (Collection.class.isAssignableFrom(type) || type.isArray()) {
-            // Arrays/Lists
             FieldType.Array.Builder arrayBuilder = FieldType.Array.newBuilder();
-            // Determine element type
-            // Note: Reflection for generic collections is tricky.
-            // Simplified: If it's a list, try to get generic type.
             FieldType elementType = determineCollectionElementType(type, genericType);
             arrayBuilder.setElementType(elementType);
             typeBuilder.setArrayDef(arrayBuilder.build());
         } else {
-            // Assume sub-schema (Nested Object)
-            // But we can't recurse infinitely if it's the SAME class.
-            // For MVP, we'll try to generate a schema for it if it has fields on it being used as data.
-            // Or we treat it as unknown/String if toString()?
-            // Let's recursively generate schema if it's a complex object.
-            
-            // NOTE: Recursive sub-schemas in this implementation might need depth control or ID references
-            // to avoid cycles. For this task, we will do a simple recursion assuming value objects (DTOs).
+            // Model object fields as nested schemas.
             try {
-                // If the class has @GraveyardEntity use that name, otherwise use simple name?
-                // Sub-schemas in this context are embedded structures.
                 String subName = type.getSimpleName();
                 Schema.Builder subSchemaBuilder = Schema.newBuilder().setName(subName);
 
@@ -152,7 +139,6 @@ public class SchemaGenerator {
                 }
                 typeBuilder.setSubSchema(subSchemaBuilder.build());
             } catch (Exception e) {
-                // Fallback to STRING? Or fail?
                 throw new UnsupportedOperationException("Unsupported type for schema generation: " + type.getName(), e);
             }
         }
@@ -168,8 +154,7 @@ public class SchemaGenerator {
     }
 
     private static FieldType determineCollectionElementType(Class<?> type, java.lang.reflect.Type genericType) {
-        // Simplified Logic: defaulting to STRING for unknown lists
-        // Proper implementation requires inspecting ParameterizedType
+        // Use generic type metadata when available.
         if (genericType instanceof java.lang.reflect.ParameterizedType) {
             java.lang.reflect.ParameterizedType pt = (java.lang.reflect.ParameterizedType) genericType;
             java.lang.reflect.Type[] args = pt.getActualTypeArguments();
@@ -179,7 +164,7 @@ public class SchemaGenerator {
                  }
             }
         }
-        // Array handling
+
         if (type.isArray()) {
             return determineFieldType(type.getComponentType(), type.getComponentType());
         }
