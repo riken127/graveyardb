@@ -15,30 +15,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Setup OpenTelemetry Tracing (OTLP over HTTP)
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_http()
-        .build()?;
-
-    let tracer_provider = opentelemetry_sdk::trace::TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .build();
-
-    let tracer = opentelemetry::trace::TracerProvider::tracer(&tracer_provider, "graveyar_db");
-
-    // Set global provider
-    opentelemetry::global::set_tracer_provider(tracer_provider);
-
-    // Create a tracing layer with the configured tracer
-    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-
-    // Use the tracing subscriber to process traces
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .with(telemetry)
-        .init();
-
     let config = config::settings::Config::from_env()?;
+    init_tracing(&config)?;
 
     println!("bootstrap OK");
     println!("Loaded config: {:?}", config);
@@ -72,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.cluster_nodes.clone(),
         config.node_id,
         config.auth_token.clone(),
+        config.schema_validation_hard_fail,
     ));
 
     // 3. Snapshot Store (Local RocksDB)
@@ -122,4 +101,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn init_tracing(config: &config::settings::Config) -> Result<(), Box<dyn std::error::Error>> {
+    if !config.otel_enabled {
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+        return Ok(());
+    }
+
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_http()
+        .build();
+    match exporter {
+        Ok(exporter) => {
+            let tracer_provider = opentelemetry_sdk::trace::TracerProvider::builder()
+                .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+                .build();
+            let tracer =
+                opentelemetry::trace::TracerProvider::tracer(&tracer_provider, "graveyar_db");
+            opentelemetry::global::set_tracer_provider(tracer_provider);
+            let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+
+            tracing_subscriber::registry()
+                .with(tracing_subscriber::fmt::layer())
+                .with(telemetry)
+                .init();
+            Ok(())
+        }
+        Err(err) => {
+            if config.otel_fail_fast {
+                return Err(Box::new(err));
+            }
+
+            eprintln!(
+                "Failed to initialize OpenTelemetry exporter (continuing with local tracing only): {}",
+                err
+            );
+            tracing_subscriber::registry()
+                .with(tracing_subscriber::fmt::layer())
+                .init();
+            Ok(())
+        }
+    }
 }

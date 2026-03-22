@@ -11,10 +11,19 @@ GraveyardDB currently exposes the core event-store path, but it is still being h
 * Deterministic cluster forwarding with a static node list.
 * Go, Java, and TypeScript SDKs.
 
-## Near-Term Hardening
+## Recently Completed (v0.2.0 Track)
+
+* Standardized `expected_version` semantics (`-1` sentinel) across server and SDKs.
+* Added structured append error mapping for better gRPC status responses.
+* Added `SCHEMA_VALIDATION_HARD_FAIL` toggle for strict schema enforcement.
+* Added deployment guardrails: `REQUIRE_TLS` and `REQUIRE_AUTH`.
+* Made OpenTelemetry startup opt-in (`OTEL_ENABLED`) with optional fail-fast (`OTEL_FAIL_FAST`).
+* Added release docs/checklists and changelog workflow.
+* Removed tracked generated TypeScript artifacts from the repository.
+
+## Remaining Backlog
 
 ### 1. Observability
-* Re-enable OpenTelemetry with pinned compatible versions.
 * Add metrics for request counts, latency, storage fallback, and forwarding.
 
 ### 2. Cluster Membership
@@ -34,7 +43,7 @@ GraveyardDB currently exposes the core event-store path, but it is still being h
 * Document the event-contract expectations for downstream consumers.
 
 ### 6. Security
-* Add stronger TLS defaults and clearer certificate guidance.
+* Add stronger TLS defaults beyond optional startup guards.
 * Replace the current token hook with a fuller authN/authZ model.
 
 ### 7. Testing

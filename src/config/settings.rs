@@ -12,6 +12,11 @@ pub struct Config {
     pub auth_token: Option<String>,
     pub tls_cert_path: Option<String>,
     pub tls_key_path: Option<String>,
+    pub schema_validation_hard_fail: bool,
+    pub require_tls: bool,
+    pub require_auth: bool,
+    pub otel_enabled: bool,
+    pub otel_fail_fast: bool,
 }
 
 impl Config {
@@ -48,6 +53,22 @@ impl Config {
         let auth_token = env::var("AUTH_TOKEN").ok();
         let tls_cert_path = env::var("TLS_CERT_PATH").ok();
         let tls_key_path = env::var("TLS_KEY_PATH").ok();
+        let schema_validation_hard_fail = parse_env_bool("SCHEMA_VALIDATION_HARD_FAIL", false)?;
+        let require_tls = parse_env_bool("REQUIRE_TLS", false)?;
+        let require_auth = parse_env_bool("REQUIRE_AUTH", false)?;
+        let otel_enabled = parse_env_bool("OTEL_ENABLED", false)?;
+        let otel_fail_fast = parse_env_bool("OTEL_FAIL_FAST", false)?;
+
+        if require_tls && (tls_cert_path.is_none() || tls_key_path.is_none()) {
+            return Err(
+                "REQUIRE_TLS=true but TLS_CERT_PATH and TLS_KEY_PATH are not both configured"
+                    .to_string(),
+            );
+        }
+
+        if require_auth && auth_token.is_none() {
+            return Err("REQUIRE_AUTH=true but AUTH_TOKEN is not configured".to_string());
+        }
 
         Ok(Self {
             scylla_uri,
@@ -60,6 +81,20 @@ impl Config {
             auth_token,
             tls_cert_path,
             tls_key_path,
+            schema_validation_hard_fail,
+            require_tls,
+            require_auth,
+            otel_enabled,
+            otel_fail_fast,
         })
+    }
+}
+
+fn parse_env_bool(key: &str, default: bool) -> Result<bool, String> {
+    match env::var(key) {
+        Ok(value) => value
+            .parse::<bool>()
+            .map_err(|_| format!("{} must be true or false", key)),
+        Err(_) => Ok(default),
     }
 }

@@ -4,6 +4,7 @@ pub mod worker;
 use crate::cluster::client::ClusterClient;
 use crate::cluster::ClusterTopology;
 use crate::domain::events::event::Event;
+use crate::domain::schema::validation::ValidationError;
 use crate::pipeline::command::PipelineCommand;
 use crate::pipeline::worker::Worker;
 use crate::storage::event_store::EventStore;
@@ -38,6 +39,12 @@ pub enum PipelineError {
     Concurrency { expected: u64, actual: u64 },
     #[error("forwarding to {target} failed: {reason}")]
     Forwarding { target: String, reason: String },
+    #[error("schema validation failed for stream {stream_id}, event {event_type}: {details}")]
+    SchemaValidation {
+        stream_id: String,
+        event_type: String,
+        details: String,
+    },
     #[error("storage error: {0}")]
     Storage(String),
 }
@@ -62,6 +69,7 @@ pub struct EventPipeline {
     topology: ClusterTopology,
     cluster_client: ClusterClient,
     self_addr: String,
+    schema_validation_hard_fail: bool,
 }
 
 impl EventPipeline {
@@ -71,6 +79,7 @@ impl EventPipeline {
         cluster_nodes: Vec<String>,
         self_node_id: u64,
         auth_token: Option<String>,
+        schema_validation_hard_fail: bool,
     ) -> Self {
         let mut workers = Vec::with_capacity(NUM_WORKERS);
 
@@ -108,6 +117,7 @@ impl EventPipeline {
             topology,
             cluster_client,
             self_addr,
+            schema_validation_hard_fail,
         }
     }
 
@@ -183,8 +193,14 @@ impl EventPipeline {
                     &event.payload.0,
                     &schema,
                 ) {
+                    if self.schema_validation_hard_fail {
+                        return Err(PipelineError::SchemaValidation {
+                            stream_id: stream_id.to_string(),
+                            event_type: type_str.clone(),
+                            details: format_validation_errors(&errs),
+                        });
+                    }
                     tracing::warn!(stream_id = %stream_id, event_type = %type_str, errors = ?errs, "Schema validation failed (Soft Fail)");
-                    // To enable Hard Fail: return Err(format!("Schema Validation Error: {:?}", errs));
                 }
             }
         }
@@ -242,6 +258,14 @@ impl EventPipeline {
     }
 }
 
+fn format_validation_errors(errors: &[ValidationError]) -> String {
+    errors
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{EventPipeline, PipelineError};
@@ -288,6 +312,7 @@ mod tests {
             vec!["127.0.0.1:50051".to_string()],
             0,
             None,
+            false,
         );
 
         let event = Event::new("stream-1", EventKind::Internal, EventPayload(vec![1]));
@@ -306,6 +331,7 @@ mod tests {
             vec!["127.0.0.1:50051".to_string()],
             0,
             None,
+            false,
         );
 
         let event = Event::new("stream-1", EventKind::Internal, EventPayload(vec![1]));

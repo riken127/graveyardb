@@ -243,6 +243,14 @@ fn status_from_pipeline_error(error: PipelineError) -> Status {
             "failed to forward append to {}: {}",
             target, reason
         )),
+        PipelineError::SchemaValidation {
+            stream_id,
+            event_type,
+            details,
+        } => Status::failed_precondition(format!(
+            "schema validation failed for stream {}, event {}: {}",
+            stream_id, event_type, details
+        )),
         PipelineError::Storage(msg) => Status::internal(msg),
     }
 }
